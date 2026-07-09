@@ -6,7 +6,11 @@
   "description": "Frank's personal Pi extensions",
   "keywords": ["pi-package"],
   "pi": {
-    "extensions": ["./extensions/*"]
+    "extensions": [
+      "./extensions/btw",
+      "./extensions/mode-presets",
+      "./extensions/subagents"
+    ]
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
