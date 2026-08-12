@@ -29,7 +29,7 @@ Thinking-level guidance for the main agent:
 
 ### `send_to_worker`
 
-Sends a follow-up message to an existing worker.
+Sends a follow-up message to an existing worker. After sending, do not poll `worker_status` in a loop; continue other work or end the turn and wait for automatic delivery.
 
 Parameters:
 
@@ -69,7 +69,9 @@ Each worker gets one extra tool:
 
 ### `message_main_thread`
 
-The worker calls this to send a message back to the main thread. The extension injects it into the main Pi session as a follow-up user message.
+The worker calls this to send a message back to the main thread. The extension injects it into the active main Pi session as a steering user message. If the main agent is streaming, the message is delivered after its current tool batch, before the next model call.
+
+Worker messages are push-based. `worker_status` is for occasional inspection, not polling; repeated status calls can keep the main agent busy and should not be used to wait for a response.
 
 ## Command
 
