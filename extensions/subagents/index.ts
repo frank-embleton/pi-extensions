@@ -179,7 +179,7 @@ export default function subagents(pi: ExtensionAPI) {
 		promptSnippet: "Spawn a background Pi worker for a focused task.",
 		promptGuidelines: [
 			"Use spawn_worker when the user wants work to proceed in parallel while the main thread continues design or review.",
-			"Do not poll worker_status in a loop. Worker messages are delivered automatically as steering messages after the current tool batch.",
+			"Do not wait for a worker by polling worker_status, calling sleep, or running any other delay command. Worker messages are delivered automatically as steering messages after the current tool batch; continue other work or end the turn.",
 			"When using spawn_worker, include design intent and constraints in the context field so the worker avoids architecture drift.",
 			"Use the parent thread's current model for spawn_worker unless the user explicitly asks for a different model or you have a strong reason and explain it.",
 			"Choose worker thinkingLevel by task difficulty: off for mechanical or simple lookup tasks, low for modest reasoning or routine code edits/investigation, and high for hard debugging/design/security/concurrency work where deep reasoning matters.",
@@ -362,12 +362,7 @@ export default function subagents(pi: ExtensionAPI) {
 				content: [
 					{
 						type: "text",
-						text: [
-							`spawn_worker → ${workerId} (${workerName})`,
-							"Worker will message back automatically when done, blocked, or needing guidance; do not poll worker_status.",
-							"",
-							params.task,
-						].join("\n"),
+						text: [`${workerId} (${workerName})`, "", params.task].join("\n"),
 					},
 				],
 				details: { workerId, workerName, ...workerRequest },
@@ -382,7 +377,7 @@ export default function subagents(pi: ExtensionAPI) {
 		promptSnippet: "Send a message to a background worker.",
 		promptGuidelines: [
 			"Use send_to_worker to reply to a worker after it messages the main thread or when the user wants to redirect worker work.",
-			"After sending, do not poll worker_status in a loop. Continue other work or end the turn; the worker response will arrive automatically.",
+			"After sending, do not wait for the worker by polling worker_status, calling sleep, or running any other delay command. Continue other work or end the turn; the worker response will arrive automatically.",
 		],
 		parameters: sendToWorkerSchema,
 		async execute(_toolCallId, params) {
@@ -408,10 +403,10 @@ export default function subagents(pi: ExtensionAPI) {
 				content: [
 					{
 						type: "text",
-						text: `Sent message to ${worker.id} (${worker.name}). Do not poll worker_status; the response will be delivered automatically.`,
+						text: [`${worker.id} (${worker.name})`, "", params.message].join("\n"),
 					},
 				],
-				details: { workerId: worker.id, workerName: worker.name },
+				details: { workerId: worker.id, workerName: worker.name, message: params.message },
 			};
 		},
 	});
