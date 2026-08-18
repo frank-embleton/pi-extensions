@@ -17,7 +17,14 @@ Parameters:
 - `model` — optional worker model as `provider/model-id`; defaults to the parent thread's current model
 - `thinkingLevel` — optional worker thinking level: `off`, `low`, or `high`
 
-By default, the worker inherits the parent session's current model and thinking level. The main agent should keep the same model unless the user explicitly requests a different model.
+By default, the worker inherits the parent session's current model and thinking level.
+
+Model selection:
+
+- `openai-codex/gpt-5.6-sol` at low or high for complex or ambiguous work
+- `openai-codex/gpt-5.6-terra` at high for clear, moderately complex work
+- `openai-codex/gpt-5.6-luna` at high only for simple, precisely defined work
+- When uncertain, inherit the parent model; briefly explain deliberate changes
 
 The tool result includes the full worker request JSON, including the resolved model, thinking level, tools, and exact kickoff prompt sent to the worker.
 
@@ -73,6 +80,10 @@ The worker calls this to send a message back to the main thread. The extension i
 
 Worker messages are push-based. `worker_status` is for occasional inspection, not polling; repeated status calls can keep the main agent busy and should not be used to wait for a response.
 
+## Worker indicator
+
+While workers are active, a compact `⚙ N workers running` indicator is right-aligned on the directory/branch line, directly above Pi's model name. It updates as workers start, finish, fail, stall, or are aborted, and disappears when none remain.
+
 ## Command
 
 ### `/workers`
@@ -102,4 +113,4 @@ Then ask the main agent to spawn a worker for a focused task.
 
 ## Notes
 
-This is intentionally small: no full UI dashboard and no persistence across reloads. Worker visibility is in-memory only via session event subscriptions, `/workers`, `/worker`, `worker_status`, and `peek_worker`. Workers are disposed when the main Pi session shuts down.
+This is intentionally small: no full UI dashboard and no persistence across reloads. Worker visibility is in-memory only via the running-worker indicator, session event subscriptions, `/workers`, `/worker`, `worker_status`, and `peek_worker`. Workers are disposed when the main Pi session shuts down.

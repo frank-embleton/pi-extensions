@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	DefaultResourceLoader,
 	SessionManager,
@@ -7,6 +7,8 @@ import {
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { Type, type Static } from "typebox";
 
 const thinkingLevelSchema = StringEnum(["off", "low", "high"] as const, {
@@ -32,7 +34,7 @@ const spawnWorkerSchema = Type.Object({
 	model: Type.Optional(
 		Type.String({
 			description:
-				'Optional model for the worker as "provider/model-id". Defaults to the parent thread\'s current model; use the same model unless the user explicitly asks for a different one.',
+				'Optional model as "provider/model-id". Defaults to the parent model. Prefer openai-codex/gpt-5.6-sol for complex work, openai-codex/gpt-5.6-terra at high reasoning for clear moderate work, and openai-codex/gpt-5.6-luna at high reasoning only for simple, precisely defined work.',
 		}),
 	),
 	thinkingLevel: Type.Optional(thinkingLevelSchema),
@@ -67,6 +69,7 @@ type WorkerRecord = {
 	lastMessage?: string;
 	currentTool?: string;
 	error?: string;
+	completionReported: boolean;
 	log: WorkerLogEntry[];
 	session: Awaited<ReturnType<typeof createAgentSession>>["session"];
 	unsubscribe: () => void;
@@ -89,8 +92,37 @@ const abortWorkerSchema = Type.Object({
 export default function subagents(pi: ExtensionAPI) {
 	const workers = new Map<string, WorkerRecord>();
 	let nextWorkerNumber = 1;
+	let uiContext: ExtensionContext | undefined;
+	let requestFooterRender: (() => void) | undefined;
 
 	let staleTimer: ReturnType<typeof setInterval> | undefined;
+	const activeStatuses = new Set<WorkerStatus>(["starting", "running", "thinking", "tool"]);
+
+	function activeWorkerText() {
+		const count = [...workers.values()].filter((worker) => activeStatuses.has(worker.status)).length;
+		if (count === 0) return "";
+		return `⚙ ${count === 1 ? "1 worker running" : `${count} workers running`}`;
+	}
+
+	function formatTokens(count: number) {
+		if (count < 1000) return `${count}`;
+		if (count < 1_000_000) return `${count < 10_000 ? (count / 1000).toFixed(1) : Math.round(count / 1000)}k`;
+		return `${count < 10_000_000 ? (count / 1_000_000).toFixed(1) : Math.round(count / 1_000_000)}M`;
+	}
+
+	function formatCwd(cwd: string) {
+		const home = process.env.HOME || process.env.USERPROFILE;
+		if (!home) return cwd;
+		const relativeToHome = relative(resolve(home), resolve(cwd));
+		const insideHome =
+			relativeToHome === "" ||
+			(relativeToHome !== ".." && !relativeToHome.startsWith(`..${sep}`) && !isAbsolute(relativeToHome));
+		return insideHome ? (relativeToHome ? `~${sep}${relativeToHome}` : "~") : cwd;
+	}
+
+	function updateWorkerFooter() {
+		requestFooterRender?.();
+	}
 
 	function ageText(time: number) {
 		const seconds = Math.max(0, Math.round((Date.now() - time) / 1000));
@@ -117,12 +149,26 @@ export default function subagents(pi: ExtensionAPI) {
 			: "No log entries.";
 	}
 
+	function finalAssistantText(messages: any[]): string | undefined {
+		const message = [...messages].reverse().find((candidate) => candidate?.role === "assistant");
+		if (!message) return undefined;
+		if (typeof message.content === "string") return message.content.trim() || undefined;
+		if (!Array.isArray(message.content)) return undefined;
+		const text = message.content
+			.filter((part: any) => part?.type === "text" && typeof part.text === "string")
+			.map((part: any) => part.text)
+			.join("\n")
+			.trim();
+		return text || undefined;
+	}
+
 	function markWorker(worker: WorkerRecord, status: WorkerStatus, event: string, text: string) {
 		worker.status = status;
 		worker.updatedAt = Date.now();
 		worker.lastEvent = event;
 		worker.lastMessage = text;
 		pushWorkerLog(worker, event, text);
+		updateWorkerFooter();
 	}
 
 	function workerDetails(worker: WorkerRecord) {
@@ -171,6 +217,65 @@ export default function subagents(pi: ExtensionAPI) {
 		}, 10_000);
 	}
 
+	pi.on("session_start", async (_event, ctx) => {
+		uiContext = ctx;
+		ctx.ui.setFooter((tui, theme, footerData) => {
+			requestFooterRender = () => tui.requestRender();
+			const unsubscribe = footerData.onBranchChange(requestFooterRender);
+			return {
+				dispose() {
+					unsubscribe();
+					requestFooterRender = undefined;
+				},
+				invalidate() {},
+				render(width: number): string[] {
+					let input = 0, output = 0, cacheRead = 0, cacheWrite = 0, cost = 0;
+					for (const entry of ctx.sessionManager.getEntries()) {
+						if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+						const usage = entry.message.usage;
+						input += usage.input;
+						output += usage.output;
+						cacheRead += usage.cacheRead;
+						cacheWrite += usage.cacheWrite;
+						cost += usage.cost.total;
+					}
+
+					const branch = footerData.getGitBranch();
+					const left = `${formatCwd(ctx.cwd)}${branch ? ` (${branch})` : ""}`;
+					const clippedRight = truncateToWidth(activeWorkerText(), width, "...");
+					const rightWidth = visibleWidth(clippedRight);
+					const gap = rightWidth > 0 && rightWidth < width ? 1 : 0;
+					const clippedLeft = truncateToWidth(left, Math.max(0, width - rightWidth - gap), "...");
+					const firstPadding = " ".repeat(Math.max(0, width - visibleWidth(clippedLeft) - rightWidth));
+
+					const context = ctx.getContextUsage();
+					const stats = [
+						input ? `↑${formatTokens(input)}` : undefined,
+						output ? `↓${formatTokens(output)}` : undefined,
+						cacheRead ? `R${formatTokens(cacheRead)}` : undefined,
+						cacheWrite ? `W${formatTokens(cacheWrite)}` : undefined,
+						cost ? `$${cost.toFixed(3)}` : undefined,
+						context ? `${context.percent === null ? "?" : context.percent.toFixed(1) + "%"}/${formatTokens(context.contextWindow)} (auto)` : undefined,
+					]
+						.filter(Boolean)
+						.join(" ");
+					const model = ctx.model?.id ?? "no-model";
+					const fullModelText = ctx.model?.reasoning ? `${model} • ${ctx.thinkingLevel}` : model;
+					const modelText = truncateToWidth(fullModelText, width, "");
+					const modelWidth = visibleWidth(modelText);
+					const secondGap = modelWidth > 0 && modelWidth < width ? 2 : 0;
+					const clippedStats = truncateToWidth(stats, Math.max(0, width - modelWidth - secondGap), "...");
+					const secondPadding = " ".repeat(Math.max(0, width - visibleWidth(clippedStats) - modelWidth));
+
+					return [
+						theme.fg("dim", clippedLeft + firstPadding + clippedRight),
+						theme.fg("dim", clippedStats + secondPadding + modelText),
+					];
+				},
+			};
+		});
+	});
+
 	pi.registerTool({
 		name: "spawn_worker",
 		label: "Spawn Worker",
@@ -181,8 +286,7 @@ export default function subagents(pi: ExtensionAPI) {
 			"Use spawn_worker when the user wants work to proceed in parallel while the main thread continues design or review.",
 			"Do not wait for a worker by polling worker_status, calling sleep, or running any other delay command. Worker messages are delivered automatically as steering messages after the current tool batch; continue other work or end the turn.",
 			"When using spawn_worker, include design intent and constraints in the context field so the worker avoids architecture drift.",
-			"Use the parent thread's current model for spawn_worker unless the user explicitly asks for a different model or you have a strong reason and explain it.",
-			"Choose worker thinkingLevel by task difficulty: off for mechanical or simple lookup tasks, low for modest reasoning or routine code edits/investigation, and high for hard debugging/design/security/concurrency work where deep reasoning matters.",
+			"Model selection: prefer openai-codex/gpt-5.6-sol (low or high) for complex or ambiguous work; use openai-codex/gpt-5.6-terra at high for clear, moderately complex work; use openai-codex/gpt-5.6-luna at high only for simple, precisely defined work. When uncertain, inherit the parent model; briefly explain deliberate model changes.",
 		],
 		parameters: spawnWorkerSchema,
 		async execute(_toolCallId, params: SpawnWorkerInput, signal, _onUpdate, ctx) {
@@ -232,6 +336,8 @@ export default function subagents(pi: ExtensionAPI) {
 							}),
 							async execute(_id, report) {
 								const kind = report.kind ? ` (${report.kind})` : "";
+								const current = workers.get(workerId);
+								if (report.kind === "done" && current) current.completionReported = true;
 								pi.sendUserMessage(
 									`Message from ${workerId} / ${workerName}${kind}:\n\n${report.message}`,
 									{ deliverAs: "steer" },
@@ -263,6 +369,7 @@ export default function subagents(pi: ExtensionAPI) {
 				updatedAt: Date.now(),
 				status: "starting",
 				lastMessage: "Worker session created.",
+				completionReported: false,
 				log: [],
 				session,
 				unsubscribe: () => {},
@@ -275,7 +382,7 @@ export default function subagents(pi: ExtensionAPI) {
 
 			worker.unsubscribe = session.subscribe((event: any) => {
 				const current = workers.get(workerId);
-				if (!current) return;
+				if (!current || current.status === "aborted" || current.status === "disposed") return;
 
 				switch (event.type) {
 					case "agent_start":
@@ -294,6 +401,7 @@ export default function subagents(pi: ExtensionAPI) {
 							const delta = event.assistantMessageEvent.delta ?? "";
 							if (delta.trim()) pushWorkerLog(current, event.type, delta, { coalesce: true });
 						}
+						updateWorkerFooter();
 						break;
 					case "tool_execution_start":
 						current.currentTool = event.toolName;
@@ -307,15 +415,24 @@ export default function subagents(pi: ExtensionAPI) {
 						current.currentTool = undefined;
 						markWorker(
 							current,
-							event.isError ? "error" : "running",
+							"running",
 							event.type,
 							`${event.toolName} ${event.isError ? "failed" : "finished"}.`,
 						);
 						break;
-					case "agent_end":
+					case "agent_end": {
 						current.currentTool = undefined;
 						markWorker(current, "done", event.type, "Agent finished.");
+						if (!current.completionReported) {
+							current.completionReported = true;
+							const summary = finalAssistantText(event.messages ?? []);
+							pi.sendUserMessage(
+								`${workerId} / ${workerName} finished${summary ? `:\n\n${summary}` : " without a final summary."}`,
+								{ deliverAs: "steer" },
+							);
+						}
 						break;
+					}
 					default:
 						current.updatedAt = Date.now();
 						current.lastEvent = event.type;
@@ -323,6 +440,7 @@ export default function subagents(pi: ExtensionAPI) {
 			});
 			pushWorkerLog(worker, "created", "Worker session created.");
 			workers.set(workerId, worker);
+			updateWorkerFooter();
 			startStaleTimer();
 
 			const kickoff = [
@@ -337,15 +455,21 @@ export default function subagents(pi: ExtensionAPI) {
 				.join("\n\n");
 
 			void session.prompt(kickoff).catch((error) => {
-				if (signal?.aborted) return;
 				const current = workers.get(workerId);
 				const message = error instanceof Error ? error.message : String(error);
 				if (current) {
-					current.error = message;
+					current.error = signal?.aborted ? undefined : message;
 					current.currentTool = undefined;
-					markWorker(current, "error", "prompt_error", message);
+					markWorker(
+						current,
+						signal?.aborted ? "aborted" : "error",
+						signal?.aborted ? "aborted" : "prompt_error",
+						signal?.aborted ? "Worker cancelled with spawning tool." : message,
+					);
 				}
-				pi.sendUserMessage(`${workerId} / ${workerName} failed: ${message}`, { deliverAs: "followUp" });
+				if (!signal?.aborted) {
+					pi.sendUserMessage(`${workerId} / ${workerName} failed: ${message}`, { deliverAs: "followUp" });
+				}
 			});
 
 			const workerRequest = {
@@ -362,7 +486,12 @@ export default function subagents(pi: ExtensionAPI) {
 				content: [
 					{
 						type: "text",
-						text: [`${workerId} (${workerName})`, "", params.task].join("\n"),
+						text: [
+							`${workerId} (${workerName})`,
+							`${formatModel(workerModel)} ${workerThinkingLevel}`,
+							"",
+							params.task,
+						].join("\n"),
 					},
 				],
 				details: { workerId, workerName, ...workerRequest },
@@ -386,16 +515,29 @@ export default function subagents(pi: ExtensionAPI) {
 				throw new Error(`Unknown worker ${params.worker_id}. Known workers:\n${workerListText()}`);
 			}
 
+			worker.completionReported = false;
+			worker.error = undefined;
+			markWorker(worker, "starting", "follow_up", "Follow-up queued.");
+			const markFollowUpError = (error: unknown) => {
+				const message = error instanceof Error ? error.message : String(error);
+				worker.error = message;
+				worker.currentTool = undefined;
+				markWorker(worker, "error", "follow_up_error", message);
+				return message;
+			};
 			if (worker.session.isStreaming) {
-				await worker.session.followUp(params.message);
+				try {
+					await worker.session.followUp(params.message);
+				} catch (error) {
+					markFollowUpError(error);
+					throw error;
+				}
 			} else {
 				void worker.session.prompt(params.message).catch((error) => {
-					pi.sendUserMessage(
-						`${worker.id} / ${worker.name} failed after follow-up: ${
-							error instanceof Error ? error.message : String(error)
-						}`,
-						{ deliverAs: "followUp" },
-					);
+					const message = markFollowUpError(error);
+					pi.sendUserMessage(`${worker.id} / ${worker.name} failed after follow-up: ${message}`, {
+						deliverAs: "followUp",
+					});
 				});
 			}
 
@@ -480,6 +622,9 @@ export default function subagents(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		if (staleTimer) clearInterval(staleTimer);
 		staleTimer = undefined;
+		uiContext?.ui.setFooter(undefined);
+		uiContext = undefined;
+		requestFooterRender = undefined;
 		for (const worker of workers.values()) worker.dispose();
 		workers.clear();
 	});
