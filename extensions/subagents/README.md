@@ -36,7 +36,7 @@ Thinking-level guidance for the main agent:
 
 ### Fable second opinions
 
-Fable runs through Claude Code's native background-agent support and is used only when the user explicitly requests it.
+Fable runs through Claude Code's native background-agent support and is used only when the user explicitly requests it. Its spawn result mirrors `spawn_worker` by showing the job id, name, model, effort, and task; result details include the full resolved request and exact kickoff prompt. When a job completes, its final response is read from Claude's transcript and delivered automatically to the main thread.
 
 - `spawn_fable` — start a read-only Fable review and return immediately
 - `fable_status` — refresh job status

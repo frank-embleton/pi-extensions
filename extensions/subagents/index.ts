@@ -8,7 +8,9 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Type, type Static } from "typebox";
 
 const thinkingLevelSchema = StringEnum(["off", "low", "high"] as const, {
@@ -110,6 +112,8 @@ type FableRecord = {
 	updatedAt: number;
 	state: string;
 	notified: boolean;
+	sessionId?: string;
+	cwd?: string;
 };
 
 export default function subagents(pi: ExtensionAPI) {
@@ -244,6 +248,30 @@ export default function subagents(pi: ExtensionAPI) {
 		}, 10_000);
 	}
 
+	async function fableFinalResponse(fable: FableRecord) {
+		if (!fable.sessionId || !fable.cwd) return undefined;
+		const projectDir = fable.cwd.replace(/[^a-zA-Z0-9_-]/g, "-");
+		const transcriptPath = join(homedir(), ".claude", "projects", projectDir, `${fable.sessionId}.jsonl`);
+		const transcript = await readFile(transcriptPath, "utf8");
+		const lines = transcript.trim().split("\n").reverse();
+		for (const line of lines) {
+			let entry: any;
+			try {
+				entry = JSON.parse(line);
+			} catch {
+				continue;
+			}
+			if (entry?.message?.role !== "assistant" || !Array.isArray(entry.message.content)) continue;
+			const text = entry.message.content
+				.filter((part: any) => part?.type === "text" && typeof part.text === "string")
+				.map((part: any) => part.text)
+				.join("\n")
+				.trim();
+			if (text) return text.length > 50_000 ? `${text.slice(0, 50_000)}\n\n[Response truncated]` : text;
+		}
+		return undefined;
+	}
+
 	async function refreshFables() {
 		if (fables.size === 0) return;
 		const result = await pi.exec("claude", ["agents", "--json", "--all"], { timeout: 10_000 });
@@ -257,6 +285,8 @@ export default function subagents(pi: ExtensionAPI) {
 		for (const fable of fables.values()) {
 			const session = sessions.find((candidate) => candidate.id === fable.id);
 			if (!session) continue;
+			fable.sessionId = typeof session.sessionId === "string" ? session.sessionId : fable.sessionId;
+			fable.cwd = typeof session.cwd === "string" ? session.cwd : fable.cwd;
 			const state = String(session.state ?? session.status ?? "unknown");
 			if (state !== fable.state) {
 				fable.state = state;
@@ -264,8 +294,21 @@ export default function subagents(pi: ExtensionAPI) {
 				updateWorkerFooter();
 			}
 			if (["done", "stopped", "error"].includes(state) && !fable.notified) {
+				let response: string | undefined;
+				if (state === "done") {
+					try {
+						response = await fableFinalResponse(fable);
+					} catch {
+						// The transcript may still be flushing; retry on the next timer tick.
+						continue;
+					}
+					if (!response) continue;
+				}
 				fable.notified = true;
-				pi.sendUserMessage(`Fable ${fable.id} (${fable.name}) ${state}.`, { deliverAs: "steer" });
+				const message = response
+					? `${fable.id} / ${fable.name} finished:\n\n## Fable second opinion\n\n${response}`
+					: `${fable.id} / ${fable.name} ${state}.`;
+				pi.sendUserMessage(message, { deliverAs: "steer" });
 			}
 		}
 	}
@@ -276,7 +319,7 @@ export default function subagents(pi: ExtensionAPI) {
 	}
 
 	function fableSummary(fable: FableRecord) {
-		return `- ${fable.id} (${fable.name})\n  state: ${fable.state}\n  updated: ${ageText(fable.updatedAt)}`;
+		return `- ${fable.id} (${fable.name})\n  status: ${fable.state}\n  updated: ${ageText(fable.updatedAt)}`;
 	}
 
 	function fableListText() {
@@ -662,9 +705,34 @@ export default function subagents(pi: ExtensionAPI) {
 			fables.set(id, fable);
 			startFableTimer();
 			updateWorkerFooter();
+			const fableRequest = {
+				name,
+				task: params.task,
+				context: params.context,
+				model: "anthropic/claude-fable-5",
+				effort: "medium",
+				permissionMode: "plan",
+				cwd: ctx.cwd,
+				kickoffPrompt: prompt,
+			};
 			return {
-				content: [{ type: "text", text: `Started Fable ${id} (${name}) in the background.` }],
-				details: { fable, command: ["claude", ...args.slice(0, -1), "<prompt>"] },
+				content: [
+					{
+						type: "text",
+						text: [
+							`${id} (${name})`,
+							"anthropic/claude-fable-5 medium",
+							"",
+							params.task,
+						].join("\n"),
+					},
+				],
+				details: {
+					fableId: id,
+					fableName: name,
+					...fableRequest,
+					command: ["claude", ...args.slice(0, -1), "<prompt>"],
+				},
 			};
 		},
 	});
