@@ -89,17 +89,44 @@ const abortWorkerSchema = Type.Object({
 	worker_id: Type.String({ description: "Worker id returned by spawn_worker." }),
 });
 
+const spawnFableSchema = Type.Object({
+	task: Type.String({ description: "The question or review task for Fable." }),
+	context: Type.Optional(Type.String({ description: "Optional self-contained context, paths, constraints, and observed errors." })),
+	name: Type.Optional(Type.String({ description: "Optional name shown by Claude's background-agent manager." })),
+});
+
+const fableIdSchema = Type.Object({
+	fable_id: Type.String({ description: "Fable background-session id returned by spawn_fable." }),
+});
+
+const fableStatusSchema = Type.Object({
+	fable_id: Type.Optional(Type.String({ description: "Optional Fable id. If omitted, list Fable jobs started by this Pi session." })),
+});
+
+type FableRecord = {
+	id: string;
+	name: string;
+	createdAt: number;
+	updatedAt: number;
+	state: string;
+	notified: boolean;
+};
+
 export default function subagents(pi: ExtensionAPI) {
 	const workers = new Map<string, WorkerRecord>();
+	const fables = new Map<string, FableRecord>();
 	let nextWorkerNumber = 1;
 	let uiContext: ExtensionContext | undefined;
 	let requestFooterRender: (() => void) | undefined;
 
 	let staleTimer: ReturnType<typeof setInterval> | undefined;
+	let fableTimer: ReturnType<typeof setInterval> | undefined;
 	const activeStatuses = new Set<WorkerStatus>(["starting", "running", "thinking", "tool"]);
 
 	function activeWorkerText() {
-		const count = [...workers.values()].filter((worker) => activeStatuses.has(worker.status)).length;
+		const workerCount = [...workers.values()].filter((worker) => activeStatuses.has(worker.status)).length;
+		const fableCount = [...fables.values()].filter((fable) => !["done", "stopped", "error"].includes(fable.state)).length;
+		const count = workerCount + fableCount;
 		if (count === 0) return "";
 		return `⚙ ${count === 1 ? "1 worker running" : `${count} workers running`}`;
 	}
@@ -215,6 +242,45 @@ export default function subagents(pi: ExtensionAPI) {
 				}
 			}
 		}, 10_000);
+	}
+
+	async function refreshFables() {
+		if (fables.size === 0) return;
+		const result = await pi.exec("claude", ["agents", "--json", "--all"], { timeout: 10_000 });
+		if (result.code !== 0) return;
+		let sessions: any[];
+		try {
+			sessions = JSON.parse(result.stdout);
+		} catch {
+			return;
+		}
+		for (const fable of fables.values()) {
+			const session = sessions.find((candidate) => candidate.id === fable.id);
+			if (!session) continue;
+			const state = String(session.state ?? session.status ?? "unknown");
+			if (state !== fable.state) {
+				fable.state = state;
+				fable.updatedAt = Date.now();
+				updateWorkerFooter();
+			}
+			if (["done", "stopped", "error"].includes(state) && !fable.notified) {
+				fable.notified = true;
+				pi.sendUserMessage(`Fable ${fable.id} (${fable.name}) ${state}.`, { deliverAs: "steer" });
+			}
+		}
+	}
+
+	function startFableTimer() {
+		if (fableTimer) return;
+		fableTimer = setInterval(() => void refreshFables().catch(() => undefined), 5_000);
+	}
+
+	function fableSummary(fable: FableRecord) {
+		return `- ${fable.id} (${fable.name})\n  state: ${fable.state}\n  updated: ${ageText(fable.updatedAt)}`;
+	}
+
+	function fableListText() {
+		return fables.size ? [...fables.values()].map(fableSummary).join("\n") : "No Fable jobs started by this Pi session.";
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -554,6 +620,88 @@ export default function subagents(pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
+		name: "spawn_fable",
+		label: "Spawn Fable",
+		description: "Start a read-only Claude Fable second-opinion job as a native background agent and return immediately.",
+		promptSnippet: "Start a requested Fable second opinion in the background.",
+		promptGuidelines: [
+			"Use spawn_fable only when the user explicitly requests Fable or a Fable second opinion; never invoke it proactively.",
+			"After spawn_fable returns, continue other work or end the turn. Do not poll or wait; completion is delivered automatically.",
+		],
+		parameters: spawnFableSchema,
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			const name = params.name?.trim() || "Fable second opinion";
+			const prompt = [
+				"Analyze this as an independent second opinion.",
+				"Do not modify files. Inspect the workspace only when useful.",
+				"Be concise, identify uncertainties, and give actionable recommendations.",
+				params.context ? `Context:\n${params.context}` : undefined,
+				`Task:\n${params.task}`,
+			]
+				.filter(Boolean)
+				.join("\n\n");
+			const args = [
+				"--bg",
+				"--model",
+				"fable",
+				"--effort",
+				"medium",
+				"--permission-mode",
+				"plan",
+				"--name",
+				name,
+				prompt,
+			];
+			const result = await pi.exec("claude", args, { signal, timeout: 30_000, cwd: ctx.cwd });
+			if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || "Claude failed to start Fable.");
+			const match = result.stdout.match(/backgrounded\s*[·:]\s*([a-z0-9-]+)/i);
+			if (!match) throw new Error(`Fable started but its id could not be parsed:\n${result.stdout.trim()}`);
+			const id = match[1];
+			const now = Date.now();
+			const fable: FableRecord = { id, name, createdAt: now, updatedAt: now, state: "running", notified: false };
+			fables.set(id, fable);
+			startFableTimer();
+			updateWorkerFooter();
+			return {
+				content: [{ type: "text", text: `Started Fable ${id} (${name}) in the background.` }],
+				details: { fable, command: ["claude", ...args.slice(0, -1), "<prompt>"] },
+			};
+		},
+	});
+
+	pi.registerTool({
+		name: "fable_status",
+		label: "Fable Status",
+		description: "Refresh and show Fable jobs started by this Pi session.",
+		parameters: fableStatusSchema,
+		async execute(_toolCallId, params): Promise<any> {
+			await refreshFables();
+			if (!params.fable_id) return { content: [{ type: "text", text: fableListText() }], details: { fables: [...fables.values()] } };
+			const fable = fables.get(params.fable_id);
+			if (!fable) throw new Error(`Unknown Fable id ${params.fable_id}.\n${fableListText()}`);
+			return { content: [{ type: "text", text: fableSummary(fable) }], details: { fable } };
+		},
+	});
+
+	pi.registerTool({
+		name: "abort_fable",
+		label: "Abort Fable",
+		description: "Stop a Fable background job while preserving its Claude conversation.",
+		parameters: fableIdSchema,
+		async execute(_toolCallId, params, signal) {
+			const fable = fables.get(params.fable_id);
+			if (!fable) throw new Error(`Unknown Fable id ${params.fable_id}.\n${fableListText()}`);
+			const result = await pi.exec("claude", ["stop", fable.id], { signal, timeout: 15_000 });
+			if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `Could not stop Fable ${fable.id}.`);
+			fable.state = "stopped";
+			fable.updatedAt = Date.now();
+			fable.notified = true;
+			updateWorkerFooter();
+			return { content: [{ type: "text", text: `Stopped Fable ${fable.id} (${fable.name}).` }], details: { fable } };
+		},
+	});
+
+	pi.registerTool({
 		name: "worker_status",
 		label: "Worker Status",
 		description: "Show status for all background workers or one worker.",
@@ -621,7 +769,9 @@ export default function subagents(pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", async () => {
 		if (staleTimer) clearInterval(staleTimer);
+		if (fableTimer) clearInterval(fableTimer);
 		staleTimer = undefined;
+		fableTimer = undefined;
 		uiContext?.ui.setFooter(undefined);
 		uiContext = undefined;
 		requestFooterRender = undefined;

@@ -34,6 +34,16 @@ Thinking-level guidance for the main agent:
 - `low` — routine code edits, focused investigation, or tasks needing modest reasoning
 - `high` — hard debugging, design review, security/concurrency concerns, or tasks where the worker needs to reason deeply
 
+### Fable second opinions
+
+Fable runs through Claude Code's native background-agent support and is used only when the user explicitly requests it.
+
+- `spawn_fable` — start a read-only Fable review and return immediately
+- `fable_status` — refresh job status
+- `abort_fable` — stop a job while preserving its Claude conversation
+
+This requires the `claude` CLI, authentication, and access to the Fable model.
+
 ### `send_to_worker`
 
 Sends a follow-up message to an existing worker. After sending, do not poll `worker_status` in a loop; continue other work or end the turn and wait for automatic delivery.
