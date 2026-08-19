@@ -10,6 +10,7 @@
   "pi": {
     "extensions": [
       "./extensions/btw",
+      "./extensions/doppelclaude/src/index.ts",
       "./extensions/mode-presets",
       "./extensions/subagents"
     ],
@@ -25,6 +26,11 @@
     "typebox": "*"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.219",
+    "@anthropic-ai/sdk": "^0.115.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "cc-session-io": "^0.3.2",
+    "partial-json": "0.1.7",
     "ws": "^8.18.0"
   },
   "devDependencies": {

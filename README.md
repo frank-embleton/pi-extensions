@@ -5,6 +5,7 @@ Personal Pi extension package.
 ## Extensions
 
 - `btw` — side-channel assistant overlay
+- `doppelclaude` — vendored Claude Agent SDK provider ([upstream documentation](extensions/doppelclaude/README.upstream.md))
 - `mode-presets` — switch model/thinking presets
 - `subagents` — background Pi worker agents
 
