@@ -242,7 +242,12 @@ export default function subagents(pi: ExtensionAPI) {
 			for (const worker of workers.values()) {
 				if (["done", "error", "aborted", "disposed", "stalled"].includes(worker.status)) continue;
 				if (now - worker.updatedAt > 120_000) {
-					markWorker(worker, "stalled", "stalled", "No worker activity for more than 120s.");
+					markWorker(
+						worker,
+						"stalled",
+						"stalled",
+						"No worker activity for more than 120s. The worker was marked stalled but was not stopped.",
+					);
 				}
 			}
 		}, 10_000);
@@ -395,6 +400,7 @@ export default function subagents(pi: ExtensionAPI) {
 			"Use spawn_worker when the user wants work to proceed in parallel while the main thread continues design or review.",
 			"Do not wait for a worker by polling worker_status, calling sleep, or running any other delay command. Worker messages are delivered automatically as steering messages after the current tool batch; continue other work or end the turn.",
 			"When using spawn_worker, include design intent and constraints in the context field so the worker avoids architecture drift.",
+			"Workers share the main checkout. For code changes, tell the worker which files it owns and avoid overlapping edits. Use a separate git worktree when isolation is needed.",
 			"Model selection: prefer openai-codex/gpt-5.6-sol (low or high) for complex or ambiguous work; use openai-codex/gpt-5.6-terra at high for clear, moderately complex work; use openai-codex/gpt-5.6-luna at high only for simple, precisely defined work. When uncertain, inherit the parent model; briefly explain deliberate model changes.",
 		],
 		parameters: spawnWorkerSchema,
