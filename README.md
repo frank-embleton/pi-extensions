@@ -37,3 +37,7 @@ pi update --extensions
 ```
 
 Then restart Pi or run `/reload`. Do not edit Pi's managed clone under `~/.pi/agent/git/`, because package updates reset and clean that checkout.
+
+## License
+
+Original content in this repository is available under the [MIT License](LICENSE). Copied and vendored components retain their original MIT notices; see [Third-party notices](THIRD_PARTY_NOTICES.md).

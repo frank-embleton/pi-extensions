@@ -2,7 +2,7 @@
 
 This directory vendors [`thurstonsand/pi-doppelclaude`](https://github.com/thurstonsand/pi-doppelclaude).
 
-- Source checkout: `/Users/frankembleton/dev/pi-doppelclaude`
+- Source repository: [`thurstonsand/pi-doppelclaude`](https://github.com/thurstonsand/pi-doppelclaude)
 - Source commit: `6fdf773b7f54d75af02313ac9b524e68fdc1899d` (`v0.10.0-2-g6fdf773`)
 - Vendored content: `src/`, `LICENSE`, and upstream `README.md`
 
