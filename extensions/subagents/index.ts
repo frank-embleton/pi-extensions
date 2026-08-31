@@ -672,7 +672,7 @@ export default function subagents(pi: ExtensionAPI) {
 		name: "spawn_fable",
 		label: "Spawn Fable",
 		description:
-			"Start a read-only Fable second opinion. Fable specializes in improving code beyond bug fixes: simplifying implementations, designing clearer interfaces, removing unnecessary state and abstractions, and finding more elegant approaches.",
+			"Start a read-only Fable second opinion. Fable specializes in improving code beyond bug fixes: simplifying implementations, designing clearer interfaces, removing unnecessary state and abstractions, removing unnecessary defensive fallbacks or backward-compatibility code, and finding more elegant approaches.",
 		promptSnippet: "Start a requested Fable second opinion in the background.",
 		promptGuidelines: [
 			"Use spawn_fable only when the user explicitly requests Fable or a Fable second opinion; never invoke it proactively.",
@@ -685,6 +685,7 @@ export default function subagents(pi: ExtensionAPI) {
 				"Analyze this as an independent second opinion.",
 				"Do not modify files. Inspect the workspace only when useful.",
 				"Review for correctness, but you must also look beyond bug fixes: find simplifications, better interfaces, less state and code, and a more elegant overall design. Prefer concrete improvements.",
+				"Look specifically for defensive fallback paths and compatibility shims that add complexity. We own the whole system and its deployment, so prefer coordinated changes over fallbacks and do not preserve backward compatibility unless the task explicitly requires it.",
 				"Be concise, identify uncertainties, and give actionable recommendations.",
 				params.context ? `Context:\n${params.context}` : undefined,
 				`Task:\n${params.task}`,
