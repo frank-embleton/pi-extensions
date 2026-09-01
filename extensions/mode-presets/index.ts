@@ -1,12 +1,18 @@
-import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { EditorTheme } from "@earendil-works/pi-tui";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	CustomEditor,
+	DynamicBorder,
+	type ExtensionAPI,
+	type ExtensionContext,
+	keyHint,
+	getSelectListTheme,
+	type ThemeColor,
+} from "@earendil-works/pi-coding-agent";
+import { Container, Input, SelectList, Spacer, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
-type ThemeColor = Parameters<EditorTheme["fg"]>[0];
 
 type ModePreset = {
 	name: string;
@@ -21,7 +27,8 @@ const defaultModes: ModePreset[] = [
 	{ name: "regular", provider: "openai-codex", model: "gpt-5.5", thinking: "low" },
 ];
 const presetFile = join(homedir(), ".pi/agent/mode-presets.json");
-const thinkingLevels: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+const thinkingLevels: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+const manualModelChoice = "Enter provider/model manually…";
 const legacyWidgetIds = ["mode-preset", "special-mode"] as const;
 
 let modes: ModePreset[] = [...defaultModes];
@@ -33,7 +40,91 @@ const thinkingColors: Record<ThinkingLevel, ThemeColor> = {
 	medium: "thinkingMedium",
 	high: "thinkingHigh",
 	xhigh: "thinkingXhigh",
+	max: "thinkingMax",
 };
+
+function modelKey(mode: Pick<ModePreset, "provider" | "model">): string {
+	return `${mode.provider}/${mode.model}`;
+}
+
+function describeMode(mode: ModePreset): string {
+	return `${mode.name} (${modelKey(mode)}:${mode.thinking})`;
+}
+
+/** Like ctx.ui.input, but the field starts filled with `initial` so it can be edited in place. */
+function promptText(ctx: ExtensionContext, title: string, initial: string): Promise<string | undefined> {
+	return ctx.ui.custom<string | undefined>((_tui, theme, keybindings, done) => {
+		const input = new Input();
+		input.setValue(initial);
+
+		class PrefilledInput extends Container {
+			private _focused = false;
+			get focused() {
+				return this._focused;
+			}
+			set focused(value: boolean) {
+				this._focused = value;
+				input.focused = value;
+			}
+			handleInput(data: string) {
+				if (keybindings.matches(data, "tui.select.confirm") || data === "\n") done(input.getValue());
+				else if (keybindings.matches(data, "tui.select.cancel")) done(undefined);
+				else input.handleInput(data);
+			}
+		}
+
+		const border = (text: string) => theme.fg("borderMuted", text);
+		const component = new PrefilledInput();
+		component.addChild(new DynamicBorder(border));
+		component.addChild(new Spacer(1));
+		component.addChild(new Text(theme.fg("accent", title), 1, 0));
+		component.addChild(new Spacer(1));
+		component.addChild(input);
+		component.addChild(new Spacer(1));
+		component.addChild(new Text(`${keyHint("tui.select.confirm", "submit")}  ${keyHint("tui.select.cancel", "cancel")}`, 1, 0));
+		component.addChild(new Spacer(1));
+		component.addChild(new DynamicBorder(border));
+		return component;
+	});
+}
+
+/** Like ctx.ui.select, but with the cursor starting on `initial` (when present). */
+function promptSelect(
+	ctx: ExtensionContext,
+	title: string,
+	options: string[],
+	initial?: string,
+): Promise<string | undefined> {
+	return ctx.ui.custom<string | undefined>((_tui, theme, keybindings, done) => {
+		const list = new SelectList(
+			options.map((value) => ({ value, label: value })),
+			Math.min(options.length, 12),
+			getSelectListTheme(),
+		);
+		const initialIndex = initial === undefined ? -1 : options.indexOf(initial);
+		if (initialIndex >= 0) list.setSelectedIndex(initialIndex);
+		list.onSelect = (item) => done(item.value);
+		list.onCancel = () => done(undefined);
+
+		class PreselectedList extends Container {
+			handleInput(data: string) {
+				if (keybindings.matches(data, "tui.select.cancel")) done(undefined);
+				else list.handleInput(data);
+			}
+		}
+
+		const border = (text: string) => theme.fg("borderMuted", text);
+		const component = new PreselectedList();
+		component.addChild(new DynamicBorder(border));
+		component.addChild(new Spacer(1));
+		component.addChild(new Text(theme.fg("accent", title), 1, 0));
+		component.addChild(new Spacer(1));
+		component.addChild(list);
+		component.addChild(new Spacer(1));
+		component.addChild(new DynamicBorder(border));
+		return component;
+	});
+}
 
 async function loadModes() {
 	try {
@@ -91,22 +182,43 @@ export default async function modePresets(pi: ExtensionAPI) {
 	}
 
 	async function editMode(ctx: ExtensionContext, existing?: ModePreset) {
-		const name = await ctx.ui.input("Preset name", existing?.name ?? "");
+		const name = (await promptText(ctx, "Preset name", existing?.name ?? ""))?.trim();
 		if (!name) return;
 		if (modes.some((mode) => mode !== existing && mode.name === name)) {
 			ctx.ui.notify(`Preset already exists: ${name}`, "error");
 			return;
 		}
 
-		const provider = await ctx.ui.input("Provider", existing?.provider ?? ctx.model?.provider ?? "");
-		if (!provider) return;
-		const model = await ctx.ui.input("Model", existing?.model ?? ctx.model?.id ?? "");
-		if (!model) return;
-		const thinking = (await ctx.ui.select("Thinking level", thinkingLevels)) as ThinkingLevel | undefined;
-		if (!thinking) return;
-		const colorInput = await ctx.ui.input("Optional theme color", existing?.color ?? "");
+		// Pick from known models so the exact provider/model id never has to be remembered.
+		const current = existing ?? (ctx.model ? { provider: ctx.model.provider, model: ctx.model.id } : undefined);
+		const currentKey = current ? modelKey(current) : undefined;
+		const known = [...new Set(ctx.modelRegistry.getAll().map((m) => `${m.provider}/${m.id}`))].sort();
+		let choice = await promptSelect(ctx, "Model", [...known, manualModelChoice], currentKey);
+		if (!choice) return;
+		if (choice === manualModelChoice) {
+			choice = (await promptText(ctx, "Model (provider/model-id)", currentKey ?? ""))?.trim();
+			if (!choice) return;
+		}
+		const slash = choice.indexOf("/");
+		if (slash <= 0 || slash === choice.length - 1) {
+			ctx.ui.notify(`Expected provider/model-id, got: ${choice}`, "error");
+			return;
+		}
+		const provider = choice.slice(0, slash);
+		const model = choice.slice(slash + 1);
 
-		const next = { name, provider, model, thinking, color: (colorInput || undefined) as ThemeColor | undefined };
+		const thinking = (await promptSelect(
+			ctx,
+			"Thinking level",
+			thinkingLevels,
+			existing?.thinking ?? pi.getThinkingLevel(),
+		)) as ThinkingLevel | undefined;
+		if (!thinking) return;
+
+		const colorInput = await promptText(ctx, "Theme color (optional, empty for thinking-level color)", existing?.color ?? "");
+		if (colorInput === undefined) return;
+
+		const next = { name, provider, model, thinking, color: (colorInput.trim() || undefined) as ThemeColor | undefined };
 		if (existing) Object.assign(existing, next);
 		else modes.push(next);
 		await saveModes();
@@ -119,7 +231,7 @@ export default async function modePresets(pi: ExtensionAPI) {
 		async handler(_args, ctx) {
 			while (true) {
 				const choices = [
-					...modes.map((mode, i) => `${i + 1}. apply ${mode.name} (${mode.provider}/${mode.model}:${mode.thinking})`),
+					...modes.map((mode, i) => `${i + 1}. apply ${describeMode(mode)}`),
 					"add preset",
 					"edit preset",
 					"delete preset",
@@ -135,14 +247,17 @@ export default async function modePresets(pi: ExtensionAPI) {
 				}
 				if (action === "add preset") await editMode(ctx);
 				if (action === "edit preset") {
-					const name = await ctx.ui.select("Edit which preset?", modes.map((mode) => mode.name));
-					const mode = modes.find((mode) => mode.name === name);
+					const labels = modes.map(describeMode);
+					const picked = await ctx.ui.select("Edit which preset?", labels);
+					const mode = picked === undefined ? undefined : modes[labels.indexOf(picked)];
 					if (mode) await editMode(ctx, mode);
 				}
 				if (action === "delete preset") {
-					const name = await ctx.ui.select("Delete which preset?", modes.map((mode) => mode.name));
-					if (name && (await ctx.ui.confirm("Delete preset?", name))) {
-						modes = modes.filter((mode) => mode.name !== name);
+					const labels = modes.map(describeMode);
+					const picked = await ctx.ui.select("Delete which preset?", labels);
+					const mode = picked === undefined ? undefined : modes[labels.indexOf(picked)];
+					if (mode && (await ctx.ui.confirm("Delete preset?", describeMode(mode)))) {
+						modes = modes.filter((other) => other !== mode);
 						await saveModes();
 						syncModeDisplay(ctx);
 					}
