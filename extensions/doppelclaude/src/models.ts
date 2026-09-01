@@ -96,6 +96,31 @@ export function projectCatalogModels(
     .map(projectModel);
 }
 
+// A model Claude Code serves before Pi's catalog describes it (e.g. a fresh point release)
+// borrows metadata from its newest described family sibling. The synthesis is conservative —
+// capped to the standard 200k window and 64k output so the bridge never requests a long-context
+// form the model may not support — and is superseded as soon as either catalog source describes
+// the model for real, because `project()` only synthesizes ids no source could describe.
+export function synthesizeSiblingModel(
+  canonicalModels: readonly Model<Api>[],
+  id: string,
+): BridgeModel | undefined {
+  const order = modelOrder(id);
+  if (!order) return undefined;
+  const family = id.split("-")[1];
+  const sibling = canonicalModels
+    .filter((model) => model.id.split("-")[1] === family && isStableClaudeModelId(model.id))
+    .sort(compareModels)[0];
+  if (!sibling) return undefined;
+  return projectModel({
+    ...sibling,
+    id,
+    name: `Claude ${family[0].toUpperCase()}${family.slice(1)} ${order[1].join(".")}`,
+    contextWindow: Math.min(sibling.contextWindow, TWO_HUNDRED_K_CONTEXT),
+    maxTokens: Math.min(sibling.maxTokens, 64_000),
+  });
+}
+
 const REASONING_TO_EFFORT: Record<string, EffortLevel> = {
   minimal: "low",
   low: "low",

@@ -12,6 +12,7 @@ import {
   compareModels,
   isStableClaudeModelId,
   projectCatalogModels,
+  synthesizeSiblingModel,
 } from "./models.js";
 import { parseValue } from "./validation.js";
 
@@ -200,6 +201,15 @@ export function createBridgeModelCatalog(
     );
     for (const model of projectCatalogModels(overlayModels, allowedIds))
       merged.set(model.id, model);
+    // An allowed model neither source describes is offered anyway, wearing its nearest
+    // family sibling's metadata until a catalog describes it properly.
+    for (const id of allowedIds) {
+      if (merged.has(id)) continue;
+      const synthesized =
+        synthesizeSiblingModel(overlayModels, id) ??
+        synthesizeSiblingModel(dependencies.builtinModels, id);
+      if (synthesized) merged.set(id, synthesized);
+    }
     models = [...merged.values()].sort(compareModels);
   };
 
