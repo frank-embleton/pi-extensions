@@ -34,15 +34,18 @@ Thinking-level guidance for the main agent:
 - `low` — routine code edits, focused investigation, or tasks needing modest reasoning
 - `high` — hard debugging, design review, security/concurrency concerns, or tasks where the worker needs to reason deeply
 
-### Fable second opinions
+### Oracle second opinions
 
-Fable runs through Claude Code's native background-agent support and is used only when the user explicitly requests it. Its spawn result mirrors `spawn_worker` by showing the job id, name, model, effort, and task; result details include the full resolved request and exact kickoff prompt. When a job completes, its final response is read from Claude's transcript and delivered automatically to the main thread.
+`spawn_oracle` is a convenience wrapper around `spawn_worker`. It starts a read-only, high-thinking worker for an independent second opinion. Its suggested default guidance focuses on simplification, clearer interfaces, less state, and removing unnecessary fallbacks or compatibility shims. Callers can replace that guidance with the optional `instructions` parameter; the read-only constraint remains fixed.
 
-- `spawn_fable` — start a read-only Fable review and return immediately
-- `fable_status` — refresh job status
-- `abort_fable` — stop a job while preserving its Claude conversation
+The result is a regular `worker-N` id, so Oracle reviews use the standard worker tools:
 
-This requires the `claude` CLI, authentication, and access to the Fable model.
+- `send_to_worker` — send the Oracle a follow-up
+- `worker_status` — inspect its status
+- `peek_worker` — inspect its recent transcript
+- `abort_worker` — stop it
+
+The Oracle should only be spawned when the user explicitly requests it or asks for an independent second opinion.
 
 ### `send_to_worker`
 
