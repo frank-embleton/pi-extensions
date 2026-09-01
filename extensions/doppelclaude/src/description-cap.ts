@@ -93,9 +93,11 @@ async function scanMatches(
 }
 
 export async function scanToolDescriptionCap(path: string): Promise<CapResult> {
+  // Older builds inline the label (`Server instructions truncated from …`); newer builds pass
+  // it as a parameter (`${label} truncated from …`). Both name the cap in the same position.
   const anchors = await scanMatches(
     path,
-    /Server instructions truncated from \$\{[A-Za-z_$][\w$]*\.length\} to \$\{([A-Za-z_$][\w$]*)\} chars/g,
+    /(?:Server instructions|\$\{[A-Za-z_$][\w$]*\}) truncated from \$\{[A-Za-z_$][\w$]*\.length\} to \$\{([A-Za-z_$][\w$]*)\} chars/g,
   );
   const identifiers = new Set(anchors.map(({ match }) => match[1]));
   if (anchors.length === 0) {
