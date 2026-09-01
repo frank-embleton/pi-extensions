@@ -208,6 +208,13 @@ export function createDescriptionCapProbe(
         cached = true;
       } else {
         const result = await scanBinary(binaryPath);
+        // A package install may still be writing the binary while we scan it. Don't cache or
+        // warn about a result taken from a file that changed underneath us; retry next start.
+        const after = await stat(binaryPath);
+        if (after.mtimeMs !== metadata.mtimeMs || after.size !== metadata.size) {
+          log(`description-cap: ${binaryPath} changed during scan; not caching result`);
+          return result.cap;
+        }
         entry = {
           path: binaryPath,
           mtimeMs: metadata.mtimeMs,
