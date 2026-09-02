@@ -610,7 +610,7 @@ export default function subagents(pi: ExtensionAPI) {
 					task: params.task,
 					context: reviewContext,
 					name: params.name?.trim() || "Oracle second opinion",
-					model: "doppelclaude/claude-fable-5",
+					model: "doppelclaude/claude-fable-5-1",
 					thinkingLevel: "high",
 					tools: ["read", "grep", "find", "ls", "message_main_thread"],
 				},
