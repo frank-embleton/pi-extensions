@@ -97,7 +97,6 @@ export function planTurn(input: {
   const systemPrompt = buildClaudeSystemPrompt(
     context.systemPrompt,
     systemPromptMode,
-    providerSettings.systemPromptReplacements,
     relocations,
   );
   const settingSources = settingSourcesFor(systemPromptMode);

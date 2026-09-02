@@ -1,5 +1,33 @@
 import type { SettingSource } from "@anthropic-ai/claude-agent-sdk";
-import type { SystemPromptReplacements } from "./settings.js";
+interface SystemPromptReplacements {
+  identity: string;
+  toolNameNote: string;
+  documentation: {
+    heading: string;
+    instructions: string[];
+  };
+}
+
+const SYSTEM_PROMPT_REPLACEMENTS: SystemPromptReplacements = {
+  identity:
+    "You are Claude, working in a custom coding harness via the Claude Code SDK. You primarily help the user with software engineering tasks.",
+  toolNameNote:
+    "Tool names arrive with a prefix when you call them, but the instructions below refer to them bare — calling `mcp__custom-tools__bash` is what the `bash` tool means",
+  documentation: {
+    heading: "Working conventions:",
+    instructions: [
+      "- Do not modify this coding harness unless the user explicitly asks.",
+      "- Work autonomously: complete reversible actions implied by the request without asking permission. Stop only for destructive actions, genuine scope changes, or input only the user can provide.",
+      "- If the user is asking a question, describing a problem, or thinking aloud rather than requesting a change, provide an assessment only; do not implement a fix.",
+      "- Before ending, finish any work you have planned or promised, including retries and investigation. Do not end with unfinished next steps or a permission-seeking question.",
+      "- Before changing system state, confirm the evidence supports that specific action rather than merely resembling a familiar failure.",
+      "- Prefer surgical edits over rewrites when the result is equivalent.",
+      "- Keep the change focused. Do not fix unrelated bugs, optimize, or extend behavior unless required; report such findings instead.",
+      "- Resolve ambiguity using the request and surrounding code's most direct reading, and note the assumption rather than supporting multiple interpretations.",
+      "- Verify the requested behavior. Add permanent tests only when requested or when this repository normally tests comparable changes, and keep them focused.",
+    ],
+  },
+};
 
 // "pi" mode isolates Claude Code's filesystem settings ([] = no setting sources);
 // every other mode keeps Claude Code's defaults (undefined).
@@ -64,10 +92,8 @@ function relocatedToolBlock(relocations: ToolDescriptionRelocation[]): string | 
 
 // Calls that never went through pi's agent loop — e.g. streamSimple
 // — carry a system prompt with none of pi's blocks in it.
-export function rewritePiSystemPrompt(
-  systemPrompt: string,
-  replacements: SystemPromptReplacements,
-): string {
+export function rewritePiSystemPrompt(systemPrompt: string): string {
+  const replacements = SYSTEM_PROMPT_REPLACEMENTS;
   if (!systemPrompt.includes(PI_IDENTITY_PROMPT)) return systemPrompt;
 
   return rewritePiDocumentationBlock(
@@ -82,7 +108,6 @@ export function rewritePiSystemPrompt(
 export function buildClaudeSystemPrompt(
   piSystemPrompt: string,
   mode: "claude-code" | "pi" | "append",
-  replacements: SystemPromptReplacements | undefined,
   relocations: ToolDescriptionRelocation[] = [],
 ): ClaudeSystemPrompt {
   const relocationBlock = relocatedToolBlock(relocations);
@@ -93,11 +118,7 @@ export function buildClaudeSystemPrompt(
       ...(relocationBlock ? { append: ` ${relocationBlock}` } : {}),
     };
   }
-  if (!replacements) {
-    throw new Error("doppelclaude: system prompt replacements are required");
-  }
-
-  const rewrittenPiPrompt = rewritePiSystemPrompt(piSystemPrompt, replacements);
+  const rewrittenPiPrompt = rewritePiSystemPrompt(piSystemPrompt);
   const promptWithRelocations = relocationBlock
     ? insertRelocatedToolBlock(rewrittenPiPrompt, relocationBlock)
     : rewrittenPiPrompt;

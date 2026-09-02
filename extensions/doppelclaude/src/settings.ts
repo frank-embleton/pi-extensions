@@ -5,22 +5,10 @@ import { Value } from "typebox/value";
 
 const NONBLANK = Type.String({ minLength: 1, pattern: "\\S" });
 
-const DOCUMENTATION_REPLACEMENT_SCHEMA = Type.Object({
-  heading: NONBLANK,
-  instructions: Type.Array(NONBLANK, { minItems: 1 }),
-});
-
-const SYSTEM_PROMPT_REPLACEMENTS_SCHEMA = Type.Object({
-  identity: NONBLANK,
-  toolNameNote: NONBLANK,
-  documentation: DOCUMENTATION_REPLACEMENT_SCHEMA,
-});
-
 const PROVIDER_SETTINGS_SCHEMA = Type.Object({
   systemPromptMode: Type.Optional(
     Type.Union([Type.Literal("claude-code"), Type.Literal("pi"), Type.Literal("append")]),
   ),
-  systemPromptReplacements: Type.Optional(SYSTEM_PROMPT_REPLACEMENTS_SCHEMA),
   pathToClaudeCodeExecutable: Type.Optional(Type.String()),
   toolDescriptionCap: Type.Optional(
     Type.Union([Type.Integer({ minimum: 1 }), Type.Literal(false)]),
@@ -41,10 +29,8 @@ const ROOT_SETTINGS_SCHEMA = Type.Object({
   doppelclaude: Type.Optional(BRIDGE_FILE_SETTINGS_SCHEMA),
 });
 
-export type SystemPromptReplacements = Static<typeof SYSTEM_PROMPT_REPLACEMENTS_SCHEMA>;
 export interface ProviderSettings {
   systemPromptMode: "claude-code" | "pi" | "append";
-  systemPromptReplacements?: SystemPromptReplacements;
   pathToClaudeCodeExecutable?: string;
   toolDescriptionCap?: number | false;
 }
@@ -77,12 +63,6 @@ function parseScopedSettings(value: unknown, path: string): BridgeFileSettings {
 }
 
 function validateSettings(settings: BridgeFileSettings): void {
-  const systemPromptMode = settings.provider?.systemPromptMode ?? "pi";
-  if (systemPromptMode !== "claude-code" && !settings.provider?.systemPromptReplacements) {
-    throw new Error(
-      `doppelclaude: doppelclaude.provider.systemPromptMode="${systemPromptMode}" requires doppelclaude.provider.systemPromptReplacements with identity, toolNameNote, and documentation`,
-    );
-  }
   if (settings.debug?.logPath !== undefined && !settings.debug.logPath.trim()) {
     throw new Error("doppelclaude: doppelclaude.debug.logPath must not be blank");
   }

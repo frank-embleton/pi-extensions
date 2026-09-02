@@ -153,7 +153,6 @@ export function createCompaction(dependencies: CompactionDependencies) {
           systemPrompt: buildClaudeSystemPrompt(
             context.systemPrompt,
             compactSystemPromptMode,
-            compactProviderSettings.systemPromptReplacements,
           ),
           model: cliModel,
           maxTurns: 1,

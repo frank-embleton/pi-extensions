@@ -10,7 +10,8 @@ Runtime dependencies are maintained in the root `package.json`. To update, copy 
 
 ## Local changes
 
-Re-apply these to `src/description-cap.ts` when re-vendoring unless upstream has them:
+Re-apply these when re-vendoring unless upstream has them:
 
-- Accept the parameterised truncation anchor (`${label} truncated from …`) used by Claude Code ≥ 0.3.257.
-- Re-`stat` the binary after scanning and skip caching/warning if it changed mid-scan (a package install may still be writing it).
+- In `src/description-cap.ts`, accept the parameterised truncation anchor (`${label} truncated from …`) used by Claude Code ≥ 0.3.257.
+- In `src/description-cap.ts`, re-`stat` the binary after scanning and skip caching/warning if it changed mid-scan (a package install may still be writing it).
+- Keep the system prompt replacements defined directly in `src/system-prompt.ts`; they are intentionally not configurable through Pi settings.
