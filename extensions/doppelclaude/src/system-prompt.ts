@@ -106,7 +106,7 @@ export function rewritePiSystemPrompt(systemPrompt: string): string {
 }
 
 export function buildClaudeSystemPrompt(
-  piSystemPrompt: string,
+  piSystemPrompt: string | undefined,
   mode: "claude-code" | "pi" | "append",
   relocations: ToolDescriptionRelocation[] = [],
 ): ClaudeSystemPrompt {
@@ -118,7 +118,7 @@ export function buildClaudeSystemPrompt(
       ...(relocationBlock ? { append: ` ${relocationBlock}` } : {}),
     };
   }
-  const rewrittenPiPrompt = rewritePiSystemPrompt(piSystemPrompt);
+  const rewrittenPiPrompt = rewritePiSystemPrompt(piSystemPrompt ?? "");
   const promptWithRelocations = relocationBlock
     ? insertRelocatedToolBlock(rewrittenPiPrompt, relocationBlock)
     : rewrittenPiPrompt;

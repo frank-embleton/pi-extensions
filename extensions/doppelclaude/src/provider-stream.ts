@@ -53,7 +53,7 @@ export function createProviderStreamRuntime(dependencies: ProviderStreamDependen
   /** Mirrors Pi's own Anthropic mapping: every terminal reason is named, and anything
    *  unrecognized fails loudly. Defaulting unknown reasons to "stop" would report a
    *  refused or truncated turn as a complete one. */
-  function mapStopReason(reason: string | undefined): {
+  function mapStopReason(reason: string | null | undefined): {
     stopReason: StopReason;
     errorMessage?: string;
   } {
@@ -515,23 +515,27 @@ export function createProviderStreamRuntime(dependencies: ProviderStreamDependen
     for (const block of assistantMsg.content) {
       if (block.type === "text" && block.text) {
         ensureTurnStarted(c);
+        const output = c.turnOutput;
+        if (!output) return;
         c.turnBlocks.push({ type: "text", text: block.text });
         const idx = c.turnBlocks.length - 1;
-        c.currentPiStream?.push({ type: "text_start", contentIndex: idx, partial: c.turnOutput });
+        c.currentPiStream?.push({ type: "text_start", contentIndex: idx, partial: output });
         c.currentPiStream?.push({
           type: "text_delta",
           contentIndex: idx,
           delta: block.text,
-          partial: c.turnOutput,
+          partial: output,
         });
         c.currentPiStream?.push({
           type: "text_end",
           contentIndex: idx,
           content: block.text,
-          partial: c.turnOutput,
+          partial: output,
         });
       } else if (block.type === "thinking") {
         ensureTurnStarted(c);
+        const output = c.turnOutput;
+        if (!output) return;
         c.turnBlocks.push({
           type: "thinking",
           thinking: block.thinking ?? "",
@@ -541,23 +545,25 @@ export function createProviderStreamRuntime(dependencies: ProviderStreamDependen
         c.currentPiStream?.push({
           type: "thinking_start",
           contentIndex: idx,
-          partial: c.turnOutput,
+          partial: output,
         });
         if (block.thinking)
           c.currentPiStream?.push({
             type: "thinking_delta",
             contentIndex: idx,
             delta: block.thinking,
-            partial: c.turnOutput,
+            partial: output,
           });
         c.currentPiStream?.push({
           type: "thinking_end",
           contentIndex: idx,
           content: block.thinking ?? "",
-          partial: c.turnOutput,
+          partial: output,
         });
       } else if (block.type === "tool_use") {
         ensureTurnStarted(c);
+        const output = c.turnOutput;
+        if (!output) return;
         c.turnSawToolCall = true;
         c.shownToolCallIds.add(block.id);
         const toolCall: ToolCall = {
@@ -571,13 +577,13 @@ export function createProviderStreamRuntime(dependencies: ProviderStreamDependen
         c.currentPiStream?.push({
           type: "toolcall_start",
           contentIndex: idx,
-          partial: c.turnOutput,
+          partial: output,
         });
         c.currentPiStream?.push({
           type: "toolcall_end",
           contentIndex: idx,
           toolCall,
-          partial: c.turnOutput,
+          partial: output,
         });
       } else {
         debug("processAssistantMessage: unhandled block type", block.type);
