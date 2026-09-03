@@ -27,6 +27,7 @@ const defaultModes: ModePreset[] = [
 	{ name: "regular", provider: "openai-codex", model: "gpt-5.5", thinking: "low" },
 ];
 const presetFile = join(homedir(), ".pi/agent/mode-presets.json");
+const selectionFile = join(homedir(), ".pi/agent/mode-presets-selection.json");
 const thinkingLevels: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 const manualModelChoice = "Enter provider/model manually…";
 const legacyWidgetIds = ["mode-preset", "special-mode"] as const;
@@ -139,6 +140,30 @@ async function saveModes() {
 	await writeFile(presetFile, `${JSON.stringify(modes, null, "\t")}\n`);
 }
 
+type Selection = Pick<ModePreset, "provider" | "model" | "thinking">;
+
+async function loadSelection(): Promise<Selection | undefined> {
+	try {
+		const value: unknown = JSON.parse(await readFile(selectionFile, "utf8"));
+		if (
+			typeof value === "object" &&
+			value !== null &&
+			typeof (value as Selection).provider === "string" &&
+			typeof (value as Selection).model === "string" &&
+			thinkingLevels.includes((value as Selection).thinking)
+		) {
+			return value as Selection;
+		}
+	} catch {
+		// No selection has been saved yet.
+	}
+}
+
+async function saveSelection(selection: Selection) {
+	await mkdir(dirname(selectionFile), { recursive: true });
+	await writeFile(selectionFile, `${JSON.stringify(selection, null, "\t")}\n`);
+}
+
 function rightLabelBorder(label: string, width: number, borderColor: (text: string) => string): string {
 	if (width <= 0) return "";
 	if (width === 1) return borderColor("─");
@@ -156,8 +181,10 @@ function rightLabelBorder(label: string, width: number, borderColor: (text: stri
 export default async function modePresets(pi: ExtensionAPI) {
 	await loadModes();
 
+	let selection = await loadSelection();
 	let activeModeName: string | undefined;
 	let requestRender: (() => void) | undefined;
+	let sessionStarted = false;
 
 	function syncModeDisplay(ctx: ExtensionContext) {
 		const model = ctx.model;
@@ -170,15 +197,26 @@ export default async function modePresets(pi: ExtensionAPI) {
 		requestRender?.();
 	}
 
-	async function applyMode(mode: ModePreset, ctx: ExtensionContext) {
-		const model = ctx.modelRegistry.find(mode.provider, mode.model);
-		if (!model) return ctx.ui.notify(`Could not find ${mode.provider}/${mode.model}`, "error");
-		if (!(await pi.setModel(model))) return ctx.ui.notify(`No auth/API key for ${mode.provider}/${mode.model}`, "error");
+	async function applySelection(next: Selection, ctx: ExtensionContext, label?: string) {
+		const model = ctx.modelRegistry.find(next.provider, next.model);
+		if (!model) return ctx.ui.notify(`Could not find ${next.provider}/${next.model}`, "error");
+		if (!(await pi.setModel(model))) return ctx.ui.notify(`No auth/API key for ${next.provider}/${next.model}`, "error");
 
-		pi.setThinkingLevel(mode.thinking);
-		activeModeName = mode.name;
+		pi.setThinkingLevel(next.thinking);
+		selection = next;
+		await saveSelection(next);
 		requestRender?.();
-		ctx.ui.notify(`${mode.name}: ${mode.model}, thinking:${mode.thinking}`, "info");
+		if (label) ctx.ui.notify(`${label}: ${next.model}, thinking:${next.thinking}`, "info");
+	}
+
+	async function applyMode(mode: ModePreset, ctx: ExtensionContext) {
+		await applySelection(mode, ctx, mode.name);
+	}
+
+	function persistCurrentSelection(ctx: ExtensionContext) {
+		if (!sessionStarted || !ctx.model) return;
+		selection = { provider: ctx.model.provider, model: ctx.model.id, thinking: pi.getThinkingLevel() };
+		void saveSelection(selection);
 	}
 
 	async function editMode(ctx: ExtensionContext, existing?: ModePreset) {
@@ -285,10 +323,21 @@ export default async function modePresets(pi: ExtensionAPI) {
 		},
 	});
 
-	pi.on("thinking_level_select", (_event, ctx) => syncModeDisplay(ctx));
-	pi.on("model_select", (_event, ctx) => syncModeDisplay(ctx));
+	pi.on("thinking_level_select", (_event, ctx) => {
+		persistCurrentSelection(ctx);
+		syncModeDisplay(ctx);
+	});
+	pi.on("model_select", (_event, ctx) => {
+		persistCurrentSelection(ctx);
+		syncModeDisplay(ctx);
+	});
 
-	pi.on("session_start", (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
+		// Pi starts a new session at its configured default thinking level. Reapply the
+		// last chosen model and level, whether or not they belong to a preset.
+		if (event.reason === "new" && selection) await applySelection(selection, ctx);
+		sessionStarted = true;
+
 		class ModePresetEditor extends CustomEditor {
 			render(width: number): string[] {
 				const lines = super.render(width);
@@ -311,6 +360,7 @@ export default async function modePresets(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", () => {
+		sessionStarted = false;
 		requestRender = undefined;
 	});
 }
