@@ -30,6 +30,48 @@ const presetFile = join(homedir(), ".pi/agent/mode-presets.json");
 const selectionFile = join(homedir(), ".pi/agent/mode-presets-selection.json");
 const thinkingLevels: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 const manualModelChoice = "Enter provider/model manually…";
+const defaultColorChoice = "Default (thinking-level color)";
+const themeColors = [
+	"accent", "border", "borderAccent", "borderMuted", "success", "error", "warning", "muted", "dim", "text", "thinkingText",
+	"searchMatchText", "userMessageText", "customMessageText", "customMessageLabel", "toolTitle", "toolOutput", "mdHeading", "mdLink",
+	"mdLinkUrl", "mdCode", "mdCodeBlock", "mdCodeBlockBorder", "mdQuote", "mdQuoteBorder", "mdHr", "mdListBullet", "toolDiffAdded",
+	"toolDiffRemoved", "toolDiffContext", "syntaxComment", "syntaxKeyword", "syntaxFunction", "syntaxVariable", "syntaxString", "syntaxNumber",
+	"syntaxType", "syntaxOperator", "syntaxPunctuation", "thinkingOff", "thinkingMinimal", "thinkingLow", "thinkingMedium", "thinkingHigh",
+	"thinkingXhigh", "thinkingMax", "bashMode",
+] as const satisfies readonly ThemeColor[];
+const themeColorSet = new Set<string>(themeColors);
+
+function colorHex(ansi: string): string {
+	const rgb = ansi.match(/\[38;2;(\d+);(\d+);(\d+)m/);
+	if (rgb) return `#${rgb.slice(1).map((part) => Number(part).toString(16).padStart(2, "0")).join("")}`;
+	const indexed = ansi.match(/\[38;5;(\d+)m/);
+	if (!indexed) return "terminal default";
+	const index = Number(indexed[1]);
+	if (index >= 232) {
+		const value = (8 + (index - 232) * 10).toString(16).padStart(2, "0");
+		return `#${value.repeat(3)}`;
+	}
+	if (index >= 16) {
+		const levels = [0, 95, 135, 175, 215, 255];
+		const value = index - 16;
+		return `#${[levels[Math.floor(value / 36)], levels[Math.floor(value / 6) % 6], levels[value % 6]].map((part) => part!.toString(16).padStart(2, "0")).join("")}`;
+	}
+	return `xterm-${index}`;
+}
+
+/** Sort RGB colors around the color wheel; neutral and terminal-defined colors follow. */
+function colorSortKey(hex: string): [number, number, number] {
+	const match = hex.match(/^#(..)(..)(..)$/);
+	if (!match) return [2, 0, 0];
+	const [red, green, blue] = match.slice(1).map((part) => Number.parseInt(part, 16) / 255) as [number, number, number];
+	const max = Math.max(red, green, blue);
+	const min = Math.min(red, green, blue);
+	const delta = max - min;
+	if (delta === 0) return [1, 0, max];
+	const hue = ((max === red ? (green - blue) / delta : max === green ? (blue - red) / delta + 2 : (red - green) / delta + 4) * 60 + 360) % 360;
+	return [0, hue, max - min];
+}
+
 const legacyWidgetIds = ["mode-preset", "special-mode"] as const;
 
 let modes: ModePreset[] = [...defaultModes];
@@ -124,6 +166,98 @@ function promptSelect(
 		component.addChild(new Spacer(1));
 		component.addChild(new DynamicBorder(border));
 		return component;
+	});
+}
+
+/**
+ * Select a theme token while previewing each choice in its own color.
+ * Tokens that resolve to the same color are collapsed into one row, named after the first token in `themeColors`.
+ */
+function promptColorSelect(ctx: ExtensionContext, initial?: ThemeColor): Promise<ThemeColor | undefined | null> {
+	return ctx.ui.custom<ThemeColor | undefined | null>((_tui, theme, keybindings, done) => {
+		const byAnsi = new Map<string, ThemeColor>();
+		for (const color of themeColors) {
+			const ansi = theme.getFgAnsi(color);
+			if (!byAnsi.has(ansi)) byAnsi.set(ansi, color);
+		}
+		const colors = [...byAnsi]
+			.map(([ansi, color]) => ({ color, key: colorSortKey(colorHex(ansi)) }))
+			.sort((a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1] || a.key[2] - b.key[2]);
+		const items = [
+			{ value: defaultColorChoice, label: theme.fg("muted", defaultColorChoice) },
+			...colors.map(({ color }) => ({ value: color, label: theme.fg(color, color) })),
+		];
+		const list = new SelectList(items, Math.min(items.length, 12), getSelectListTheme());
+		const initialRow = initial && themeColorSet.has(initial) ? byAnsi.get(theme.getFgAnsi(initial)) : undefined;
+		list.setSelectedIndex(initialRow ? colors.findIndex(({ color }) => color === initialRow) + 1 : 0);
+		list.onSelect = (item) => done(item.value === defaultColorChoice ? undefined : item.value as ThemeColor);
+		list.onCancel = () => done(null);
+
+		class ColorList extends Container {
+			handleInput(data: string) {
+				if (keybindings.matches(data, "tui.select.cancel")) done(null);
+				else list.handleInput(data);
+			}
+		}
+
+		const border = (text: string) => theme.fg("borderMuted", text);
+		const component = new ColorList();
+		component.addChild(new DynamicBorder(border));
+		component.addChild(new Spacer(1));
+		component.addChild(new Text(theme.fg("accent", "Label color"), 1, 0));
+		component.addChild(new Spacer(1));
+		component.addChild(list);
+		component.addChild(new Spacer(1));
+		component.addChild(new DynamicBorder(border));
+		return component;
+	});
+}
+
+/** A substring-searchable selector for large lists such as the model registry. */
+function promptSearchSelect(ctx: ExtensionContext, title: string, options: string[], initial?: string): Promise<string | undefined> {
+	return ctx.ui.custom<string | undefined>((_tui, theme, keybindings, done) => {
+		const input = new Input();
+		const border = (text: string) => theme.fg("borderMuted", text);
+		const component = new Container();
+		let list: SelectList;
+
+		const rebuild = () => {
+			const query = input.getValue().toLowerCase();
+			const filtered = options.filter((option) => option.toLowerCase().includes(query));
+			list = new SelectList(filtered.map((value) => ({ value, label: value })), Math.min(Math.max(filtered.length, 1), 12), getSelectListTheme());
+			if (!query && initial) list.setSelectedIndex(filtered.indexOf(initial));
+			list.onSelect = (item) => done(item.value);
+			list.onCancel = () => done(undefined);
+			component.clear();
+			component.addChild(new DynamicBorder(border));
+			component.addChild(new Text(theme.fg("accent", title), 1, 0));
+			component.addChild(input);
+			component.addChild(list);
+			component.addChild(new Text(theme.fg("dim", `Type to search • ↑↓ navigate • ${keyHint("tui.select.confirm", "enter")} select • ${keyHint("tui.select.cancel", "esc")} cancel`), 1, 0));
+			component.addChild(new DynamicBorder(border));
+		};
+		rebuild();
+
+		return {
+			get focused() { return input.focused; },
+			set focused(value: boolean) { input.focused = value; },
+			render: (width) => component.render(width),
+			invalidate: () => component.invalidate(),
+			handleInput: (data) => {
+				if (keybindings.matches(data, "tui.select.cancel")) return done(undefined);
+				if (data === "\n") {
+					const item = list.getSelectedItem();
+					if (item) done(item.value);
+				} else if (keybindings.matches(data, "tui.select.up") || keybindings.matches(data, "tui.select.down") || keybindings.matches(data, "tui.select.confirm")) {
+					list.handleInput(data);
+				} else {
+					const before = input.getValue();
+					input.handleInput(data);
+					if (input.getValue() !== before) rebuild();
+					else list.handleInput(data);
+				}
+			},
+		};
 	});
 }
 
@@ -231,7 +365,7 @@ export default async function modePresets(pi: ExtensionAPI) {
 		const current = existing ?? (ctx.model ? { provider: ctx.model.provider, model: ctx.model.id } : undefined);
 		const currentKey = current ? modelKey(current) : undefined;
 		const known = [...new Set(ctx.modelRegistry.getAll().map((m) => `${m.provider}/${m.id}`))].sort();
-		let choice = await promptSelect(ctx, "Model", [...known, manualModelChoice], currentKey);
+		let choice = await promptSearchSelect(ctx, "Model", [...known, manualModelChoice], currentKey);
 		if (!choice) return;
 		if (choice === manualModelChoice) {
 			choice = (await promptText(ctx, "Model (provider/model-id)", currentKey ?? ""))?.trim();
@@ -253,10 +387,10 @@ export default async function modePresets(pi: ExtensionAPI) {
 		)) as ThinkingLevel | undefined;
 		if (!thinking) return;
 
-		const colorInput = await promptText(ctx, "Theme color (optional, empty for thinking-level color)", existing?.color ?? "");
-		if (colorInput === undefined) return;
+		const color = await promptColorSelect(ctx, existing?.color);
+		if (color === null) return;
 
-		const next = { name, provider, model, thinking, color: (colorInput.trim() || undefined) as ThemeColor | undefined };
+		const next = { name, provider, model, thinking, color };
 		if (existing) Object.assign(existing, next);
 		else modes.push(next);
 		await saveModes();
@@ -344,7 +478,7 @@ export default async function modePresets(pi: ExtensionAPI) {
 				if (lines.length < 2 || !activeModeName) return lines;
 
 				const mode = modes.find((mode) => mode.name === activeModeName);
-				const labelColor = mode?.color ?? (mode ? thinkingColors[mode.thinking] : "accent");
+				const labelColor = mode?.color && themeColorSet.has(mode.color) ? mode.color : (mode ? thinkingColors[mode.thinking] : "accent");
 				const borderColor = (text: string) => this.borderColor(text);
 				const label = `${ctx.ui.theme.fg(labelColor, activeModeName)}${borderColor("─")}`;
 				lines[0] = rightLabelBorder(label, width, borderColor);
