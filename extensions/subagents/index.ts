@@ -660,7 +660,19 @@ export default function subagents(pi: ExtensionAPI) {
 		async execute(_toolCallId, params) {
 			const worker = workers.get(params.worker_id);
 			if (!worker) throw new Error(`Unknown worker ${params.worker_id}. Known workers:\n${workerListText()}`);
-			await worker.session.abort();
+			if (!worker.session.isStreaming) {
+				return {
+					content: [{ type: "text", text: `${worker.id} (${worker.name}) is already ${worker.status}.` }],
+					details: { workerId: worker.id },
+				};
+			}
+
+			// AgentSession.abort() waits for an idle event. If the worker finishes between
+			// the isStreaming check and that wait, the event can be missed and hang this tool.
+			// abort() signals cancellation synchronously, so do not block on its idle wait.
+			void worker.session.abort().catch((error) => {
+				pushWorkerLog(worker, "abort_error", error instanceof Error ? error.message : String(error));
+			});
 			worker.currentTool = undefined;
 			markWorker(worker, "aborted", "aborted", "Worker aborted by main thread.");
 			return { content: [{ type: "text", text: `Aborted ${worker.id} (${worker.name}).` }], details: { workerId: worker.id } };
