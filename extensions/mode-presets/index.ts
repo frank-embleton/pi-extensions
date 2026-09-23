@@ -417,7 +417,14 @@ export default async function modePresets(pi: ExtensionAPI) {
 
 			// Resync first so manually landing on a preset participates in the cycle.
 			syncModeDisplay(ctx);
-			await applyMode(modes[(modes.findIndex((mode) => mode.name === activeModeName) + 1) % modes.length]!, ctx);
+			const start = modes.findIndex((mode) => mode.name === activeModeName);
+			for (let offset = 1; offset <= modes.length; offset++) {
+				const mode = modes[(start + offset) % modes.length]!;
+				if (!ctx.modelRegistry.find(mode.provider, mode.model)) continue;
+				await applyMode(mode, ctx);
+				return;
+			}
+			ctx.ui.notify("No configured mode models are available; check /modes presets", "error");
 		},
 	});
 
