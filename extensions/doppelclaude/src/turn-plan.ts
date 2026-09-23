@@ -4,17 +4,21 @@
 // query or spawns a new one — and derive it again, identically, for a replay.
 
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
-import type { Api, Context, Model, SimpleStreamOptions, Tool } from "@earendil-works/pi-ai";
+import {
+  getCurrentTools,
+  normalizeContext,
+  type Api,
+  type Context,
+  type Model,
+  type SimpleStreamOptions,
+  type Tool,
+} from "@earendil-works/pi-ai";
 import { makeCliDebugOptions } from "./debug.js";
 import { claudeCodeModelId, resolveThinkingEffort } from "./models.js";
 import { sdkChildEnv } from "./sdk-child-env.js";
 import type { ProviderSettings } from "./settings.js";
 import { MCP_TOOL_PREFIX } from "./skills.js";
-import {
-  buildClaudeSystemPrompt,
-  settingSourcesFor,
-  type ToolDescriptionRelocation,
-} from "./system-prompt.js";
+import { buildClaudeSystemPrompt, type ToolDescriptionRelocation } from "./system-prompt.js";
 
 export interface TurnTools {
   mcpTools: Tool[];
@@ -31,16 +35,9 @@ export function resolveMcpTools(context: Context, toolDescriptionCap: number | f
   const customToolNameToSdk = new Map<string, string>();
   const customToolNameToPi = new Map<string, string>();
 
-  if (!context.tools)
-    return {
-      mcpTools,
-      originalMcpTools,
-      relocations,
-      customToolNameToSdk,
-      customToolNameToPi,
-    };
-
-  for (const tool of context.tools) {
+  // Pi's agent loop folds tool declarations into system messages before calling
+  // the provider. context.tools is absent on those normalized turns.
+  for (const tool of getCurrentTools(normalizeContext(context).messages)) {
     const sdkName = `${MCP_TOOL_PREFIX}${tool.name}`;
     originalMcpTools.push(tool);
     if (toolDescriptionCap !== false && tool.description.length > toolDescriptionCap) {
@@ -93,13 +90,7 @@ export function planTurn(input: {
 }): TurnPlan {
   const { model, context, options, providerSettings, oneShot, relocations } = input;
   const cwd = (options as { cwd?: string } | undefined)?.cwd ?? process.cwd();
-  const systemPromptMode = providerSettings.systemPromptMode;
-  const systemPrompt = buildClaudeSystemPrompt(
-    context.systemPrompt,
-    systemPromptMode,
-    relocations,
-  );
-  const settingSources = settingSourcesFor(systemPromptMode);
+  const systemPrompt = buildClaudeSystemPrompt(relocations);
   const claudeExecutable = providerSettings.pathToClaudeCodeExecutable;
   const effort = resolveThinkingEffort(model, options?.reasoning);
   const cliModel = claudeCodeModelId(model);
@@ -109,7 +100,6 @@ export function planTurn(input: {
     cwd,
     systemPrompt,
     effort: effort ?? null,
-    settingSources: settingSources ?? null,
     claudeExecutable: claudeExecutable ?? null,
   });
   const queryOptions: Options = {
@@ -124,7 +114,7 @@ export function planTurn(input: {
     model: cliModel,
     extraArgs,
     ...(effort ? { effort } : {}),
-    ...(settingSources ? { settingSources } : {}),
+    settingSources: [],
     ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
     ...makeCliDebugOptions(oneShot ? "provider-child" : "provider"),
   };

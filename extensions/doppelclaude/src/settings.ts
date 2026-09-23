@@ -6,9 +6,6 @@ import { Value } from "typebox/value";
 const NONBLANK = Type.String({ minLength: 1, pattern: "\\S" });
 
 const PROVIDER_SETTINGS_SCHEMA = Type.Object({
-  systemPromptMode: Type.Optional(
-    Type.Union([Type.Literal("claude-code"), Type.Literal("pi"), Type.Literal("append")]),
-  ),
   pathToClaudeCodeExecutable: Type.Optional(Type.String()),
   toolDescriptionCap: Type.Optional(
     Type.Union([Type.Integer({ minimum: 1 }), Type.Literal(false)]),
@@ -30,7 +27,6 @@ const ROOT_SETTINGS_SCHEMA = Type.Object({
 });
 
 export interface ProviderSettings {
-  systemPromptMode: "claude-code" | "pi" | "append";
   pathToClaudeCodeExecutable?: string;
   toolDescriptionCap?: number | false;
 }
@@ -94,7 +90,6 @@ export function loadBridgeSettings(cwd: string, options: LoadSettingsOptions = {
   return {
     provider: {
       ...settings.provider,
-      systemPromptMode: settings.provider?.systemPromptMode ?? "pi",
     },
     debug: {
       enabled:

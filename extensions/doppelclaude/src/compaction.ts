@@ -30,7 +30,7 @@ import { sdkChildEnv } from "./sdk-child-env.js";
 import { logServedContextWindow, resultErrorText } from "./sdk-result.js";
 import { applySdkUsage, debugSdkUsage, type SdkUsage } from "./sdk-usage.js";
 import type { ProviderSettings } from "./settings.js";
-import { buildClaudeSystemPrompt, settingSourcesFor } from "./system-prompt.js";
+import { buildClaudeSystemPrompt } from "./system-prompt.js";
 
 interface IsolatedQuery extends AsyncIterable<SDKMessage> {
   interrupt(): Promise<unknown>;
@@ -132,8 +132,6 @@ export function createCompaction(dependencies: CompactionDependencies) {
     try {
       const promptText = extractIsolatedSummaryPrompt(context.messages);
       const compactProviderSettings = loadProviderSettings(cwd);
-      const compactSystemPromptMode = compactProviderSettings.systemPromptMode;
-      const compactSettingSources = settingSourcesFor(compactSystemPromptMode);
       const claudeExecutable = compactProviderSettings.pathToClaudeCodeExecutable;
       const cliModel = claudeCodeModelId(model);
       debug(
@@ -147,13 +145,10 @@ export function createCompaction(dependencies: CompactionDependencies) {
           env: sdkChildEnv({ DISABLE_AUTO_COMPACT: "1" }),
           tools: [],
           strictMcpConfig: true,
-          ...(compactSettingSources ? { settingSources: compactSettingSources } : {}),
+          settingSources: [],
           skills: [],
           persistSession: false,
-          systemPrompt: buildClaudeSystemPrompt(
-            context.systemPrompt,
-            compactSystemPromptMode,
-          ),
+          systemPrompt: buildClaudeSystemPrompt(),
           model: cliModel,
           maxTurns: 1,
           ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
