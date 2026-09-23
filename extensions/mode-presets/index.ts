@@ -281,17 +281,6 @@ export default async function modePresets(pi: ExtensionAPI) {
 	let activeModeName: string | undefined;
 	let requestRender: (() => void) | undefined;
 	let sessionStarted = false;
-	let refreshedMissingModels = false;
-
-	async function refreshMissingModels(ctx: ExtensionContext) {
-		if (refreshedMissingModels || !modes.some((mode) => !ctx.modelRegistry.find(mode.provider, mode.model))) return;
-		refreshedMissingModels = true;
-		// Pi's CLI catalog update does not refresh extension-provided models. Probe the
-		// provider when a configured preset is absent from its cached allowlist.
-		const providers = [...new Set(modes.filter((mode) => !ctx.modelRegistry.find(mode.provider, mode.model)).map((mode) => mode.provider))];
-		const result = await ctx.modelRegistry.refresh({ providers });
-		for (const [provider, error] of result.errors) ctx.ui.notify(`Could not refresh ${provider}: ${error.message}`, "warning");
-	}
 
 	function syncModeDisplay(ctx: ExtensionContext) {
 		const model = ctx.model;
@@ -304,7 +293,6 @@ export default async function modePresets(pi: ExtensionAPI) {
 	}
 
 	async function applySelection(next: Selection, ctx: ExtensionContext, label?: string) {
-		if (!ctx.modelRegistry.find(next.provider, next.model)) await refreshMissingModels(ctx);
 		const model = ctx.modelRegistry.find(next.provider, next.model);
 		if (!model) return ctx.ui.notify(`Could not find ${next.provider}/${next.model}`, "error");
 		if (!(await pi.setModel(model))) return ctx.ui.notify(`No auth/API key for ${next.provider}/${next.model}`, "error");
@@ -429,15 +417,7 @@ export default async function modePresets(pi: ExtensionAPI) {
 
 			// Resync first so manually landing on a preset participates in the cycle.
 			syncModeDisplay(ctx);
-			await refreshMissingModels(ctx);
-			const start = modes.findIndex((mode) => mode.name === activeModeName);
-			for (let offset = 1; offset <= modes.length; offset++) {
-				const mode = modes[(start + offset) % modes.length]!;
-				if (!ctx.modelRegistry.find(mode.provider, mode.model)) continue;
-				await applyMode(mode, ctx);
-				return;
-			}
-			ctx.ui.notify("No configured mode models are available; check /modes presets", "error");
+			await applyMode(modes[(modes.findIndex((mode) => mode.name === activeModeName) + 1) % modes.length]!, ctx);
 		},
 	});
 
@@ -478,7 +458,6 @@ export default async function modePresets(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", () => {
-		refreshedMissingModels = false;
 		sessionStarted = false;
 		requestRender = undefined;
 	});
