@@ -118,7 +118,11 @@ export function buildClaudeSystemPrompt(
       ...(relocationBlock ? { append: ` ${relocationBlock}` } : {}),
     };
   }
-  const rewrittenPiPrompt = rewritePiSystemPrompt(piSystemPrompt ?? "");
+  // Some Pi entry points provide no system prompt. A whitespace-only SDK system
+  // block is rejected by Claude's API, so supply a minimal valid identity.
+  const rewrittenPiPrompt = rewritePiSystemPrompt(
+    piSystemPrompt?.trim() ? piSystemPrompt : PI_IDENTITY_PROMPT,
+  );
   const promptWithRelocations = relocationBlock
     ? insertRelocatedToolBlock(rewrittenPiPrompt, relocationBlock)
     : rewrittenPiPrompt;

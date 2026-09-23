@@ -196,7 +196,12 @@ function planFor(
     }
   }
   return {
-    path: priorMessages.length === 0 ? "clean-start" : "rebuild",
+    // Pi can prepend a system message to the first turn. It is supplied through
+    // the SDK system prompt, not imported as conversation history; resuming a
+    // synthetic session containing only that message fails in Claude Code.
+    path: priorMessages.every((message) => (message as { role?: string }).role === "system")
+      ? "clean-start"
+      : "rebuild",
     priorMessages,
     previousSession: currentSession,
   };
