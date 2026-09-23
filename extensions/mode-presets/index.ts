@@ -285,27 +285,42 @@ export default async function modePresets(pi: ExtensionAPI) {
 	function syncModeDisplay(ctx: ExtensionContext) {
 		const model = ctx.model;
 		const thinking = pi.getThinkingLevel();
-		activeModeName = modes.find(
-			(mode) => model?.provider === mode.provider && model.id === mode.model && thinking === mode.thinking,
-		)?.name;
+		const matchingModelModes = model
+			? modes.filter((mode) => model.provider === mode.provider && model.id === mode.model)
+			: [];
+		activeModeName =
+			matchingModelModes.find((mode) => mode.thinking === thinking)?.name ??
+			(matchingModelModes.length === 1 ? matchingModelModes[0]?.name : undefined);
 
 		requestRender?.();
 	}
 
-	async function applySelection(next: Selection, ctx: ExtensionContext, label?: string) {
+	async function applySelection(next: Selection, ctx: ExtensionContext, label?: string): Promise<boolean> {
 		const model = ctx.modelRegistry.find(next.provider, next.model);
-		if (!model) return ctx.ui.notify(`Could not find ${next.provider}/${next.model}`, "error");
-		if (!(await pi.setModel(model))) return ctx.ui.notify(`No auth/API key for ${next.provider}/${next.model}`, "error");
+		if (!model) {
+			ctx.ui.notify(`Could not find ${next.provider}/${next.model}`, "error");
+			return false;
+		}
+		if (!(await pi.setModel(model))) {
+			ctx.ui.notify(`No auth/API key for ${next.provider}/${next.model}`, "error");
+			return false;
+		}
 
 		pi.setThinkingLevel(next.thinking);
 		selection = next;
 		await saveSelection(next);
 		syncModeDisplay(ctx);
 		if (label) ctx.ui.notify(`${label}: ${next.model}, thinking:${next.thinking}`, "info");
+		return true;
 	}
 
-	async function applyMode(mode: ModePreset, ctx: ExtensionContext) {
-		await applySelection(mode, ctx, mode.name);
+	async function applyMode(mode: ModePreset, ctx: ExtensionContext): Promise<boolean> {
+		if (!(await applySelection(mode, ctx, mode.name))) return false;
+		// The context passed to a shortcut can still describe the model from before
+		// setModel, so preset application records its identity explicitly.
+		activeModeName = mode.name;
+		requestRender?.();
+		return true;
 	}
 
 	function persistCurrentSelection(ctx: ExtensionContext) {
@@ -415,9 +430,14 @@ export default async function modePresets(pi: ExtensionAPI) {
 				return;
 			}
 
-			// Resync first so manually landing on a preset participates in the cycle.
-			syncModeDisplay(ctx);
-			await applyMode(modes[(modes.findIndex((mode) => mode.name === activeModeName) + 1) % modes.length]!, ctx);
+			// Selection events keep this in sync for manual model changes; do not resync
+			// from this shortcut's potentially stale context after applying a preset.
+			const start = modes.findIndex((mode) => mode.name === activeModeName);
+			for (let offset = 1; offset <= modes.length; offset++) {
+				const mode = modes[(start + offset) % modes.length]!;
+				if (await applyMode(mode, ctx)) return;
+			}
+			ctx.ui.notify("No configured mode could be activated; check model availability and authentication", "error");
 		},
 	});
 
