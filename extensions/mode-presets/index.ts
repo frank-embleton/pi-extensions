@@ -300,7 +300,7 @@ export default async function modePresets(pi: ExtensionAPI) {
 		pi.setThinkingLevel(next.thinking);
 		selection = next;
 		await saveSelection(next);
-		requestRender?.();
+		syncModeDisplay(ctx);
 		if (label) ctx.ui.notify(`${label}: ${next.model}, thinking:${next.thinking}`, "info");
 	}
 
