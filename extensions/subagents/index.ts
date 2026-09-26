@@ -458,7 +458,7 @@ export default function subagents(pi: ExtensionAPI) {
 			`You are ${workerId} / ${workerName}, a background worker agent spawned by a main Pi thread.`,
 			"Work independently on the focused task below.",
 			"Keep changes narrow and avoid speculative abstractions.",
-			"When you finish, need guidance, or discover a design issue, call message_main_thread.",
+			"Your final reply is delivered to the main thread automatically. If message_main_thread is available, use it to send progress updates or ask for guidance before finishing; you do not need it to report completion.",
 			params.context ? `\nContext from main thread:\n${params.context}` : undefined,
 			`\nTask:\n${params.task}`,
 		]
@@ -513,7 +513,7 @@ export default function subagents(pi: ExtensionAPI) {
 		name: "spawn_worker",
 		label: "Spawn Worker",
 		description:
-			"Spawn a background Pi worker agent for a focused implementation/research task. The worker can message the main thread when done or when it needs guidance.",
+			"Spawn a background Pi worker agent for a focused implementation or research task. The call returns straight away with a worker id. When the worker finishes or needs guidance, its message arrives in this conversation as a new user turn. Don't sleep or poll while you wait; end your turn or carry on with other work. Use send_to_worker to reply to it.",
 		promptSnippet: "Spawn a background Pi worker for a focused task.",
 		promptGuidelines: [
 			"Use spawn_worker when the user wants work to proceed in parallel while the main thread continues design or review.",
@@ -586,7 +586,7 @@ export default function subagents(pi: ExtensionAPI) {
 		name: "spawn_oracle",
 		label: "Spawn Oracle",
 		description:
-			"Ask the Oracle for an independent second opinion on code, architecture, plans, or difficult decisions. Use it to challenge assumptions, identify simplifications, compare alternatives, and find clearer designs—not for routine implementation. The returned worker id works with send_to_worker, worker_status, peek_worker, and abort_worker.",
+			"Ask the Oracle for an independent second opinion on code, architecture, plans, or difficult decisions. Use it to challenge assumptions, identify simplifications, compare alternatives, and find clearer designs—not for routine implementation. The call returns straight away. The Oracle's answer arrives in this conversation as a new user turn when it's ready, so don't sleep or poll while you wait. The returned worker id works with send_to_worker, worker_status, peek_worker, and abort_worker.",
 		promptSnippet: "Spawn a read-only Oracle worker for a second opinion.",
 		promptGuidelines: [
 			"Use spawn_oracle only when the user explicitly requests an Oracle or independent second opinion; never invoke it proactively.",
@@ -623,7 +623,7 @@ export default function subagents(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "worker_status",
 		label: "Worker Status",
-		description: "Show status for all background workers or one worker.",
+		description: "Show status for all background workers or one worker. Use it when asked about progress, or to check on a worker that seems stuck. You don't need it to get results, because finished workers report into the conversation themselves.",
 		promptSnippet: "Inspect background worker status.",
 		parameters: workerStatusSchema,
 		async execute(_toolCallId, params): Promise<any> {
@@ -639,7 +639,7 @@ export default function subagents(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "peek_worker",
 		label: "Peek Worker",
-		description: "Show recent event/transcript log entries for a background worker.",
+		description: "Show recent event and transcript log entries for a background worker. Use it to debug or look at progress. Final results are delivered to the conversation automatically.",
 		promptSnippet: "Peek at recent worker activity.",
 		parameters: peekWorkerSchema,
 		async execute(_toolCallId, params) {
