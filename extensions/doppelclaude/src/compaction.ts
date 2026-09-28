@@ -30,7 +30,6 @@ import { sdkChildEnv } from "./sdk-child-env.js";
 import { logServedContextWindow, resultErrorText } from "./sdk-result.js";
 import { applySdkUsage, debugSdkUsage, type SdkUsage } from "./sdk-usage.js";
 import type { ProviderSettings } from "./settings.js";
-import { buildClaudeSystemPrompt } from "./system-prompt.js";
 
 interface IsolatedQuery extends AsyncIterable<SDKMessage> {
   interrupt(): Promise<unknown>;
@@ -69,18 +68,25 @@ function newAssistantOutput(
   };
 }
 
-function extractIsolatedSummaryPrompt(messages: Context["messages"]): string {
-  if (messages.length !== 1 || messages[0].role !== "user") {
+function extractIsolatedSummaryPrompt(messages: Context["messages"]): {
+  promptText: string;
+  systemPrompt: string;
+} {
+  const [system, user] = messages;
+  if (messages.length !== 2 || system.role !== "system" || user.role !== "user") {
     throw new Error(
-      `isolatedStreamFn: expected exactly 1 user message, got ${messages.length} ` +
+      `isolatedStreamFn: expected system and user messages, got ${messages.length} ` +
         `(${messages.map((m) => m.role).join(",")})`,
     );
   }
-  const last = messages[0];
   const promptText =
-    typeof last.content === "string" ? last.content : messageContentToText(last.content) || "";
+    typeof user.content === "string" ? user.content : messageContentToText(user.content) || "";
   if (!promptText) throw new Error("isolatedStreamFn: summarization prompt is empty");
-  return promptText;
+  return {
+    promptText,
+    systemPrompt:
+      typeof system.content === "string" ? system.content : messageContentToText(system.content),
+  };
 }
 
 function reinjectPriorCompactionFileOps(
@@ -130,7 +136,7 @@ export function createCompaction(dependencies: CompactionDependencies) {
     };
 
     try {
-      const promptText = extractIsolatedSummaryPrompt(context.messages);
+      const { promptText, systemPrompt } = extractIsolatedSummaryPrompt(context.messages);
       const compactProviderSettings = loadProviderSettings(cwd);
       const claudeExecutable = compactProviderSettings.pathToClaudeCodeExecutable;
       const cliModel = claudeCodeModelId(model);
@@ -148,7 +154,7 @@ export function createCompaction(dependencies: CompactionDependencies) {
           settingSources: [],
           skills: [],
           persistSession: false,
-          systemPrompt: buildClaudeSystemPrompt(),
+          systemPrompt,
           model: cliModel,
           maxTurns: 1,
           ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
