@@ -47,7 +47,7 @@ The result is a regular `worker-N` id, so Oracle reviews use the standard worker
 
 The Oracle should only be spawned when the user explicitly requests it or asks for an independent second opinion. The package's `/review` and `/audit` prompt templates are explicit requests of this kind; they invoke the same Oracle, not separate agents or persistent modes.
 
-For code reviews, default guidance requires verified, concrete findings, inspection of connected callers, and scale judgments grounded in the actual deployment. Reports rank findings with file/line references, consequences, the smallest sufficient fixes, and scope/checking limitations. General architecture and decision second opinions remain supported.
+`/review` and `/audit` load the shared `oracle-code-review` skill and pass its reviewer instructions through `spawn_oracle.instructions` for that call only. These require verified, concrete findings, inspection of connected callers, and scale judgments grounded in the actual deployment. Reports rank findings with file/line references, consequences, the smallest sufficient fixes, and scope/checking limitations. Ordinary Oracle calls retain the original general second-opinion defaults; code-review requirements are not injected into them.
 
 The Oracle can read files but has no shell or Git tool. `/review` asks the main agent to resolve the diff and provide it (or an absolute path to a complete diff saved outside the repository), along with repository paths and constraints. `/audit` asks it to map the target and inspect the highest-risk flows, stating which areas it did not inspect.
 
