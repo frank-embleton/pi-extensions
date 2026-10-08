@@ -15,10 +15,10 @@ Includes the personal skills under `skills/`.
 
 ## Oracle prompts
 
-- `/review [uncommitted|staged|branch|PR URL|files]` — review a change and its connected callers. Defaults to uncommitted changes, or the last commit when the working tree is clean.
-- `/audit [repository|package|folder]` — map a codebase and audit its highest-risk flows. Defaults to the current repository.
+- `/review [target]` — review a diff or named files and their affected callers. Defaults to uncommitted changes, or the last commit if there are none.
+- `/audit [target]` — audit a repository or folder's highest-risk flows. Defaults to the current repository.
 
-These are prompt templates, not new agents or persistent modes. Both explicitly request the existing read-only Oracle and load the shared `oracle-code-review` skill as instructions for that call only. Ordinary Oracle calls keep their general second-opinion defaults. The main agent resolves the scope and supplies Git/PR evidence, since the Oracle has no shell or Git tool. Findings distinguish confirmed problems from uncertainties and state what was not checked.
+Both are self-contained prompt templates using the existing read-only Oracle with per-call instructions. Ordinary Oracle defaults are unchanged.
 
 ## Install on a new machine
 

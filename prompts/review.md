@@ -1,15 +1,19 @@
 ---
-description: Ask the Oracle to review a change and its connected code
-argument-hint: "[uncommitted|staged|branch|PR URL|files]"
+description: Have the Oracle review a change and its affected callers
+argument-hint: "[staged|branch|PR URL|files]"
 ---
-The user explicitly requests an independent, read-only Oracle code review.
+Ask the Oracle for an independent, read-only review.
 
 Target: ${@:-uncommitted changes, or the last commit if there are none}
 
-Resolve the target before spawning. For a branch, establish its base and review the merge-base diff. For a PR, obtain its base/head and diff. Ensure the files available to the Oracle match the reviewed revision; if they do not, use a separate temporary checkout or state the limitation rather than reviewing unrelated local files. Include untracked files when reviewing uncommitted work. If the target is ambiguous, ask rather than guess.
+Resolve the target and collect its diff, including untracked files for uncommitted work. For a branch or PR, establish the base/head and review the merge-base diff. Ensure the source available to the Oracle matches the reviewed revision; ask if the scope is ambiguous.
 
-The Oracle has file-reading tools, but no shell or Git tool and does not inherit this conversation. Collect the relevant diff and pass it, the repository path, base/head where applicable, changed-file paths, and any user constraints in spawn_oracle context. For a large diff, save the complete diff outside the repository and provide its absolute path. For named files, provide their paths and clarify that this is a file review rather than a diff review. Keep the main thread read-only too.
+Call spawn_oracle. Put the target in task. In context, include the repository path, diff (or an absolute path to a complete diff saved outside the repository), relevant file paths, and user constraints. The Oracle has no shell/Git tool and does not inherit this conversation. For a file review, provide the file paths instead of a diff. Pass the following as instructions, replacing the general Oracle defaults for this call:
 
-Read the `oracle-code-review` skill and pass its reviewer instructions as spawn_oracle.instructions, replacing the general defaults for this call only. Its task is to understand the change, then read connected callers, dependencies, tests, fixtures, configuration, and exports. Trace behavior end to end, especially when signatures or return values change: unchanged code can break too. Report verified findings and the smallest sufficient fixes, with scope and limitations. Do not modify files or run commands that change repository state.
+Review the change and the connected code, not just the diff. Read affected callers, dependencies, tests, fixtures, configuration, and exports. Trace data flow and check whether unchanged callers break when behavior, signatures, or return values change.
 
-Do not poll or wait in a loop. When the Oracle reports back, present its findings and distinguish any additional interpretation of your own.
+Prioritize correctness, security/data loss, failures under expected load, missing tests, performance, then simplification. Judge concurrency and performance against the actual deployment, stating assumptions when unknown. Preserve necessary validation, error handling, security, and accessibility. Prefer reuse and the smallest sufficient fix over new layers or speculative compatibility machinery.
+
+Verify findings against the code. Each finding needs a concrete input, situation, or maintenance consequence; omit speculative worries and style preferences. Rank findings by severity, with file/line references, what goes wrong, and the smallest sufficient fix. Separate uncertainties from confirmed findings. State scope and important checks not performed. If nothing is found, say so without claiming the change is proven safe. Report only; do not modify files.
+
+Keep the main thread read-only too. After spawning, do not poll or wait in a loop. Present the Oracle's findings when it reports back.

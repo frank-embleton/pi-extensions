@@ -1,15 +1,17 @@
 ---
-description: Ask the Oracle to audit a repository or package by critical flow
-argument-hint: "[repository|package|folder]"
+description: Have the Oracle audit a repository's highest-risk flows
+argument-hint: "[package|folder]"
 ---
-The user explicitly requests an independent, read-only Oracle codebase audit.
+Ask the Oracle for an independent, read-only audit.
 
 Target: ${@:-the current repository}
 
-Resolve the target, read the `oracle-code-review` skill, and pass its reviewer instructions as spawn_oracle.instructions, replacing the general defaults for this call only. Pass the absolute repository/target paths and any user constraints in context; the Oracle does not inherit this conversation. Keep the main thread read-only too.
+Resolve the target and call spawn_oracle. Put the target in task and its absolute path, repository path, and user constraints in context. The Oracle does not inherit this conversation. Pass the following as instructions, replacing the general Oracle defaults for this call:
 
-Its task is to map the target from its README, dependency list, deployment configuration, entry points, and tests. Establish the expected load and process model, then trace critical flows end to end: authentication, money, data writes, background jobs, and state shared between processes. Prioritize concrete correctness, security, data-loss, and expected-load failures before testing gaps, performance, and simplification.
+Map the target from its README, dependencies, deployment configuration, entry points, and tests. Establish its expected load and process model. Trace critical flows end to end: authentication, money, data writes, background jobs, and state shared between processes. Read connected callers, not isolated functions. For a large target, investigate the highest-risk flows deeply and state which areas were not inspected; do not claim an exhaustive audit.
 
-For a large target, go deep on the highest-risk flows instead of claiming an exhaustive file-by-file audit. Report verified findings and the smallest sufficient fixes, state load assumptions, and name the areas not inspected and tests not run. Do not modify files or run commands that change repository state.
+Prioritize correctness, security/data loss, failures under expected load, missing tests, performance, then simplification. Judge concurrency and performance against the actual deployment, stating assumptions when unknown. Preserve necessary validation, error handling, security, and accessibility. Prefer reuse and the smallest sufficient fix over new layers or speculative compatibility machinery.
 
-Do not poll or wait in a loop. When the Oracle reports back, present its findings and distinguish any additional interpretation of your own.
+Verify findings against the code, including references before declaring code unused. Each finding needs a concrete input, situation, or maintenance consequence; omit speculative worries and style preferences. Rank findings by severity, with file/line references, what goes wrong, and the smallest sufficient fix. Separate uncertainties from confirmed findings. State scope and important checks not performed. If nothing is found, say so without claiming the codebase is proven safe. Report only; do not modify files.
+
+Keep the main thread read-only too. After spawning, do not poll or wait in a loop. Present the Oracle's findings when it reports back.
