@@ -11,7 +11,9 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { Type, type Static } from "typebox";
 
-const thinkingLevelSchema = StringEnum(["off", "low", "high"] as const, {
+const workerModelGuidance = "Workers may use any registered model; the following are recommendations, not an allowlist. Unless another provider is explicitly specified, use openai-codex for GPT models and doppelclaude for Claude models, not openai or anthropic. Always pass the full provider/model-id when choosing a model. Use openai-codex/gpt-6.1-sol for implementation by default; doppelclaude/claude-opus-5-5 for long-running implementation or an alternative approach; openai-codex/gpt-6-astra for difficult correctness, bugs, and reverse engineering; doppelclaude/claude-fable-5-1 for design and simplification; and openai-codex/gpt-6.1-terra for visual reasoning, browser interaction, and UI verification. Start at medium thinking for implementation and visual work, low for straightforward exploration, and high for difficult reasoning. When uncertain, inherit the parent model; briefly explain deliberate model changes.";
+
+const thinkingLevelSchema = StringEnum(["off", "low", "medium", "high"] as const, {
 	description:
 		'Optional thinking level for the worker. Use "off" for no thinking. Defaults to the parent thread\'s current thinking level.',
 });
@@ -34,7 +36,7 @@ const spawnWorkerSchema = Type.Object({
 	model: Type.Optional(
 		Type.String({
 			description:
-				'Optional model as "provider/model-id". Defaults to the parent model. Prefer openai-codex/gpt-5.6-sol for complex work, openai-codex/gpt-5.6-terra at high reasoning for clear moderate work, and openai-codex/gpt-5.6-luna at high reasoning only for simple, precisely defined work.',
+				`Optional model as "provider/model-id". Defaults to the parent model. ${workerModelGuidance}`,
 		}),
 	),
 	thinkingLevel: Type.Optional(thinkingLevelSchema),
@@ -89,14 +91,31 @@ const abortWorkerSchema = Type.Object({
 	worker_id: Type.String({ description: "Worker id returned by spawn_worker." }),
 });
 
-const defaultOracleInstructions = [
-	"Act as an independent second opinion.",
-	"Review correctness, but also seek simplifications, clearer interfaces, less state and code, and a more elegant overall design. Prefer concrete improvements.",
-	"Look specifically for defensive fallback paths and compatibility shims that add complexity. We own the whole system and deployment, so prefer coordinated changes over fallbacks and do not preserve backward compatibility unless the task explicitly requires it.",
-	"Be concise, identify uncertainties, and give actionable recommendations.",
-].join("\n\n");
+const oracleModes = {
+	design: {
+		model: "doppelclaude/claude-fable-5-1",
+		instructions: [
+			"Act as an independent second opinion focused on design and simplification.",
+			"Seek the simplest sufficient design, clearer interfaces, less state and code, and concrete reductions in complexity while preserving required behavior.",
+			"Challenge unnecessary abstractions, defensive fallbacks, and compatibility shims. We own the whole system and deployment, so prefer coordinated changes and do not preserve backward compatibility unless the task explicitly requires it.",
+			"Be concise, identify uncertainties, and give actionable recommendations.",
+		].join("\n\n"),
+	},
+	correctness: {
+		model: "openai-codex/gpt-6-astra",
+		instructions: [
+			"Act as an independent second opinion focused on correctness, bugs, and reverse engineering.",
+			"Trace actual behavior and test assumptions. Investigate edge cases, concurrency, and failure modes; reconstruct undocumented behavior from evidence when needed.",
+			"Cite code paths and evidence, distinguish confirmed defects from hypotheses, and suggest concrete reproductions or tests. Do not report speculative issues as confirmed bugs.",
+			"Be concise, identify uncertainties, and give actionable recommendations.",
+		].join("\n\n"),
+	},
+} as const;
 
 const spawnOracleSchema = Type.Object({
+	mode: StringEnum(["design", "correctness"] as const, {
+		description: "Oracle mode: design uses Fable for simplification and design; correctness uses Astra for correctness, bugs, and reverse engineering.",
+	}),
 	task: Type.String({ description: "The question or review task for the Oracle." }),
 	context: Type.Optional(Type.String({ description: "Optional self-contained context, paths, constraints, and observed errors." })),
 	instructions: Type.Optional(
@@ -520,7 +539,7 @@ export default function subagents(pi: ExtensionAPI) {
 			"Do not wait for a worker by polling worker_status, calling sleep, or running any other delay command. Worker messages are delivered automatically as steering messages after the current tool batch; continue other work or end the turn.",
 			"When using spawn_worker, include design intent and constraints in the context field so the worker avoids architecture drift.",
 			"Workers share the main checkout. For code changes, tell the worker which files it owns and avoid overlapping edits. Use a separate git worktree when isolation is needed.",
-			"Model selection: prefer openai-codex/gpt-5.6-sol (low or high) for complex or ambiguous work; use openai-codex/gpt-5.6-terra at high for clear, moderately complex work; use openai-codex/gpt-5.6-luna at high only for simple, precisely defined work. When uncertain, inherit the parent model; briefly explain deliberate model changes.",
+			`Model selection: ${workerModelGuidance}`,
 		],
 		parameters: spawnWorkerSchema,
 		execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -586,20 +605,21 @@ export default function subagents(pi: ExtensionAPI) {
 		name: "spawn_oracle",
 		label: "Spawn Oracle",
 		description:
-			"Ask the Oracle for an independent second opinion on code, architecture, plans, or difficult decisions. Use it to challenge assumptions, identify simplifications, compare alternatives, and find clearer designs—not for routine implementation. The call returns straight away. The Oracle's answer arrives in this conversation as a new user turn when it's ready, so don't sleep or poll while you wait. The returned worker id works with send_to_worker, worker_status, peek_worker, and abort_worker.",
+			"Ask the Oracle for a read-only independent second opinion. Choose design (Fable) for simplification and design, or correctness (Astra) for correctness, bugs, and reverse engineering—not routine implementation. The call returns straight away. The Oracle's answer arrives in this conversation as a new user turn when it's ready, so don't sleep or poll while you wait. The returned worker id works with send_to_worker, worker_status, peek_worker, and abort_worker.",
 		promptSnippet: "Spawn a read-only Oracle worker for a second opinion.",
 		promptGuidelines: [
 			"Use spawn_oracle only when the user explicitly requests an Oracle or independent second opinion; never invoke it proactively.",
-			"The Oracle is especially useful for independent design and code review focused on simplification, clearer interfaces, less state, and unnecessary fallbacks or compatibility shims.",
-			`The suggested default review instructions are delimited below. They are not mandatory; set instructions when the user wants a different review lens or response format.\n\n<default_oracle_instructions>\n${defaultOracleInstructions}\n</default_oracle_instructions>`,
+			"Choose mode design for Fable's simplification and design review; choose mode correctness for Astra's correctness, bug investigation, and reverse engineering review. Both modes are read-only and use high thinking.",
+			"Each mode has focused default review instructions. Set instructions to replace that guidance when the user wants a different review lens or response format; the read-only constraint remains fixed.",
 			"The Oracle is a regular worker: use its returned worker id with send_to_worker, worker_status, peek_worker, and abort_worker.",
 			"After spawning or sending a follow-up, do not poll or wait; completion is delivered automatically.",
 		],
 		parameters: spawnOracleSchema,
 		execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			const mode = oracleModes[params.mode];
 			const reviewContext = [
 				"This is a read-only review. Do not modify files.",
-				params.instructions?.trim() || defaultOracleInstructions,
+				params.instructions?.trim() || mode.instructions,
 				params.context ? `Additional context:\n${params.context}` : undefined,
 			]
 				.filter(Boolean)
@@ -609,8 +629,8 @@ export default function subagents(pi: ExtensionAPI) {
 				{
 					task: params.task,
 					context: reviewContext,
-					name: params.name?.trim() || "Oracle second opinion",
-					model: "doppelclaude/claude-fable-5-1",
+					name: params.name?.trim() || `Oracle ${params.mode} review`,
+					model: mode.model,
 					thinkingLevel: "high",
 					tools: ["read", "grep", "find", "ls", "message_main_thread"],
 				},

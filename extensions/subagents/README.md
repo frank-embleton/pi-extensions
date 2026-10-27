@@ -15,15 +15,21 @@ Parameters:
 - `name` — optional human-readable worker name
 - `tools` — optional list of enabled tool names; defaults to `read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`, and `message_main_thread`
 - `model` — optional worker model as `provider/model-id`; defaults to the parent thread's current model
-- `thinkingLevel` — optional worker thinking level: `off`, `low`, or `high`
+- `thinkingLevel` — optional worker thinking level: `off`, `low`, `medium`, or `high`
 
 By default, the worker inherits the parent session's current model and thinking level.
 
-Model selection:
+Model selection is unrestricted: workers may use any registered model. The five models below are recommendations, not an allowlist; the configured mode presets do not limit worker model selection.
 
-- `openai-codex/gpt-5.6-sol` at low or high for complex or ambiguous work
-- `openai-codex/gpt-5.6-terra` at high for clear, moderately complex work
-- `openai-codex/gpt-5.6-luna` at high only for simple, precisely defined work
+Unless another provider is explicitly specified, GPT/OpenAI model names refer to the `openai-codex` provider and Claude model names refer to `doppelclaude`, not `openai` or `anthropic`. Always pass the full `provider/model-id` when selecting a worker model. Use an explicitly requested provider as stated.
+
+Recommended models:
+
+- `openai-codex/gpt-6.1-sol` — default implementation worker
+- `doppelclaude/claude-opus-5-5` — long-running implementation or an alternative approach
+- `openai-codex/gpt-6-astra` — difficult correctness, bugs, and reverse engineering
+- `doppelclaude/claude-fable-5-1` — design and simplification
+- `openai-codex/gpt-6.1-terra` — visual reasoning, browser interaction, and UI verification
 - When uncertain, inherit the parent model; briefly explain deliberate changes
 
 The tool result includes the full worker request JSON, including the resolved model, thinking level, tools, and exact kickoff prompt sent to the worker.
@@ -31,12 +37,18 @@ The tool result includes the full worker request JSON, including the resolved mo
 Thinking-level guidance for the main agent:
 
 - `off` — mechanical, simple lookup, formatting, or low-risk file inspection tasks
-- `low` — routine code edits, focused investigation, or tasks needing modest reasoning
+- `low` — straightforward exploration or tasks needing modest reasoning
+- `medium` — default for implementation and visual/browser work
 - `high` — hard debugging, design review, security/concurrency concerns, or tasks where the worker needs to reason deeply
 
 ### Oracle second opinions
 
-`spawn_oracle` is a convenience wrapper around `spawn_worker`. It starts a read-only, high-thinking worker for an independent second opinion. Its suggested default guidance focuses on simplification, clearer interfaces, less state, and removing unnecessary fallbacks or compatibility shims. Callers can replace that guidance with the optional `instructions` parameter; the read-only constraint remains fixed.
+`spawn_oracle` starts a read-only, high-thinking worker for an independent second opinion. Its required `mode` selects the model and default review guidance:
+
+- `design` — Fable 5.1 (`doppelclaude/claude-fable-5-1`): simplification, clearer interfaces, less state and code, and removing unnecessary abstractions, fallbacks, and compatibility shims while preserving required behavior.
+- `correctness` — Astra (`openai-codex/gpt-6-astra`): correctness, bugs, edge cases, concurrency, and reverse engineering. Findings should cite evidence, distinguish confirmed defects from hypotheses, and suggest reproductions or tests.
+
+Callers can replace the mode's default guidance with the optional `instructions` parameter; the read-only constraint remains fixed.
 
 The result is a regular `worker-N` id, so Oracle reviews use the standard worker tools:
 
