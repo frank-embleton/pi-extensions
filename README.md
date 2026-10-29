@@ -13,6 +13,13 @@ Personal Pi extension package.
 
 Includes the personal skills under `skills/`.
 
+## Oracle prompts
+
+- `/review [target]` — review a diff or named files and their affected callers. Defaults to uncommitted changes, or the last commit if there are none.
+- `/audit [target]` — audit a repository or folder's highest-risk flows. Defaults to the current repository.
+
+Both are self-contained prompt templates using the existing read-only Oracle with per-call instructions. Ordinary Oracle defaults are unchanged.
+
 ## Install on a new machine
 
 This repository is a Pi package. Install it globally from GitHub:
@@ -22,7 +29,7 @@ pi install https://github.com/frank-embleton/pi-extensions
 pi list
 ```
 
-Then restart Pi, or run `/reload` in an existing session. Pi loads both the extensions and skills declared in `package.json`; no manual clone or symlinks are needed.
+Then restart Pi, or run `/reload` in an existing session. Pi loads the extensions, skills, and prompt templates declared in `package.json`; no manual clone or symlinks are needed.
 
 If you are giving this README to Pi on another machine, ask it:
 
