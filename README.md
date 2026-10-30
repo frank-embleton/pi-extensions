@@ -22,11 +22,35 @@ pi install https://github.com/frank-embleton/pi-extensions
 pi list
 ```
 
-Then restart Pi, or run `/reload` in an existing session. Pi loads both the extensions and skills declared in `package.json`; no manual clone or symlinks are needed.
+Pi loads the extensions and skills declared in `package.json`. To also use the shared global instructions and mode presets, run this once on each machine after installing:
+
+```bash
+node ~/.pi/agent/git/github.com/frank-embleton/pi-extensions/scripts/link-config.mjs
+```
+
+Then restart Pi, or run `/reload` in an existing session.
 
 If you are giving this README to Pi on another machine, ask it:
 
-> Install the Pi package from `https://github.com/frank-embleton/pi-extensions` globally, verify it with `pi list`, and tell me whether I need to restart or reload Pi.
+> Install the Pi package from `https://github.com/frank-embleton/pi-extensions` globally, run its `scripts/link-config.mjs` script from the installed package directory, verify it with `pi list`, and tell me whether I need to restart or reload Pi.
+
+## Shared global configuration
+
+- `config/AGENTS.md` contains the shared global instructions.
+- `config/mode-presets.json` contains the shared model/thinking presets.
+- `scripts/link-config.mjs` symlinks these files into `~/.pi/agent/` (or `PI_CODING_AGENT_DIR` when set).
+
+The script backs up existing regular files under the agent directory's `backups/shared-config-*` directory. Rerunning it leaves correct links alone and refuses to replace unexpected symlinks or directories. It does not touch credentials, device IDs, settings, or `mode-presets-selection.json`; those remain machine-local.
+
+Run the script from Pi's managed package checkout so package updates refresh the linked files. Edit shared files in your development checkout, commit and push them, then update the package on each machine. Do not edit the linked files through `~/.pi/agent/`: those writes would modify the managed checkout and be lost on update.
+
+To stop sharing a file, remove its symlink and copy the desired file from the backup directory into its place.
+
+Test the setup script with:
+
+```bash
+node --test scripts/link-config.test.mjs
+```
 
 ## Updating
 

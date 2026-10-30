@@ -1,0 +1,37 @@
+[
+	{
+		"name": "sol",
+		"provider": "openai-codex",
+		"model": "gpt-6.1-sol",
+		"thinking": "medium",
+		"color": "accent"
+	},
+	{
+		"name": "astra",
+		"provider": "openai-codex",
+		"model": "gpt-6-astra",
+		"thinking": "medium",
+		"color": "borderAccent"
+	},
+	{
+		"name": "opus",
+		"provider": "doppelclaude",
+		"model": "claude-opus-5-5",
+		"thinking": "medium",
+		"color": "mdHeading"
+	},
+	{
+		"name": "fable",
+		"provider": "doppelclaude",
+		"model": "claude-fable-5-1",
+		"thinking": "medium",
+		"color": "syntaxString"
+	},
+	{
+		"name": "terra",
+		"provider": "openai-codex",
+		"model": "gpt-6.1-terra",
+		"thinking": "medium",
+		"color": "syntaxVariable"
+	}
+]
