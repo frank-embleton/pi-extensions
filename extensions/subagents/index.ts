@@ -11,7 +11,7 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { Type, type Static } from "typebox";
 
-const workerModelGuidance = "Workers may use any registered model; the following are recommendations, not an allowlist. Unless another provider is explicitly specified, use openai-codex for GPT models and doppelclaude for Claude models, not openai or anthropic. Always pass the full provider/model-id when choosing a model. Use openai-codex/gpt-6.1-sol for implementation by default; doppelclaude/claude-opus-5-5 for long-running implementation or an alternative approach; openai-codex/gpt-6-astra for difficult correctness, bugs, and reverse engineering; doppelclaude/claude-fable-5-1 for design and simplification; and openai-codex/gpt-6.1-terra for visual reasoning, browser interaction, and UI verification. Start at medium thinking for implementation and visual work, low for straightforward exploration, and high for difficult reasoning. When uncertain, inherit the parent model; briefly explain deliberate model changes.";
+const workerModelGuidance = "Workers may use any registered model; the following are recommendations, not an allowlist. Unless another provider is explicitly specified, use openai-codex for GPT models and doppelclaude for Claude models, not openai or anthropic. Always pass the full provider/model-id when choosing a model. Use openai-codex/gpt-6.1-sol for implementation by default; doppelclaude/claude-opus-5-5 for long-running implementation or an alternative approach; openai-codex/gpt-6-astra for difficult correctness, bugs, and reverse engineering; doppelclaude/claude-fable-5-2 for design and simplification; and openai-codex/gpt-6.1-terra for visual reasoning, browser interaction, and UI verification. Start at medium thinking for implementation and visual work, low for straightforward exploration, and high for difficult reasoning. When uncertain, inherit the parent model; briefly explain deliberate model changes.";
 
 const thinkingLevelSchema = StringEnum(["off", "low", "medium", "high"] as const, {
 	description:
@@ -93,7 +93,7 @@ const abortWorkerSchema = Type.Object({
 
 const oracleModes = {
 	design: {
-		model: "doppelclaude/claude-fable-5-1",
+		model: "doppelclaude/claude-fable-5-2",
 		instructions: [
 			"Act as an independent second opinion focused on design and simplification.",
 			"Seek the simplest sufficient design, clearer interfaces, less state and code, and concrete reductions in complexity while preserving required behavior.",

@@ -28,7 +28,7 @@ Recommended models:
 - `openai-codex/gpt-6.1-sol` — default implementation worker
 - `doppelclaude/claude-opus-5-5` — long-running implementation or an alternative approach
 - `openai-codex/gpt-6-astra` — difficult correctness, bugs, and reverse engineering
-- `doppelclaude/claude-fable-5-1` — design and simplification
+- `doppelclaude/claude-fable-5-2` — design and simplification
 - `openai-codex/gpt-6.1-terra` — visual reasoning, browser interaction, and UI verification
 - When uncertain, inherit the parent model; briefly explain deliberate changes
 
@@ -45,7 +45,7 @@ Thinking-level guidance for the main agent:
 
 `spawn_oracle` starts a read-only, high-thinking worker for an independent second opinion. Its required `mode` selects the model and default review guidance:
 
-- `design` — Fable 5.1 (`doppelclaude/claude-fable-5-1`): simplification, clearer interfaces, less state and code, and removing unnecessary abstractions, fallbacks, and compatibility shims while preserving required behavior.
+- `design` — Fable 5.2 (`doppelclaude/claude-fable-5-2`): simplification, clearer interfaces, less state and code, and removing unnecessary abstractions, fallbacks, and compatibility shims while preserving required behavior.
 - `correctness` — Astra (`openai-codex/gpt-6-astra`): correctness, bugs, edge cases, concurrency, and reverse engineering. Findings should cite evidence, distinguish confirmed defects from hypotheses, and suggest reproductions or tests.
 
 Callers can replace the mode's default guidance with the optional `instructions` parameter; the read-only constraint remains fixed.

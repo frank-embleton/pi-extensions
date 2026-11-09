@@ -23,7 +23,7 @@
 	{
 		"name": "fable",
 		"provider": "doppelclaude",
-		"model": "claude-fable-5-1",
+		"model": "claude-fable-5-2",
 		"thinking": "medium",
 		"color": "syntaxString"
 	},
