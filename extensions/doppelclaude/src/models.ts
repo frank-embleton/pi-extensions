@@ -6,11 +6,6 @@ export const PROVIDER_NAME = "Doppelclaude";
 export const PROVIDER_API = "doppelclaude";
 export const PROVIDER_BASE_URL = "claude-code://local";
 
-// The marker survives modelOverrides but cannot be supplied by models.json, so user-defined
-// replacements never cross the provider boundary as catalog-confirmed models. Symbol.for, not
-// Symbol: /reload re-evaluates the module graph, and models projected by the previous generation
-// must still pass the new generation's check.
-const BRIDGE_MODEL = Symbol.for("pi-doppelclaude.model");
 const MODEL_FAMILIES_IN_ORDER = ["fable", "opus", "sonnet", "haiku"];
 const NUMERIC_MODEL_VERSION = /^\d+$/u;
 const SHORT_MODEL_VERSION_PART = /^\d{1,2}$/u;
@@ -18,13 +13,11 @@ const LONG_CONTEXT_FORM = /\[1m\]$/u;
 const DATED_SNAPSHOT = /-\d{8}$/u;
 const TWO_HUNDRED_K_CONTEXT = 200_000;
 
-export interface BridgeModel extends Model<typeof PROVIDER_API> {
-  readonly [BRIDGE_MODEL]: string;
-}
+export type BridgeModel = Model<typeof PROVIDER_API>;
 
 export function isSupportedModel(model: Model<Api>): model is BridgeModel {
   return (
-    (model as Partial<BridgeModel>)[BRIDGE_MODEL] === model.id &&
+    isStableClaudeModelId(model.id) &&
     model.provider === PROVIDER_ID &&
     model.api === PROVIDER_API &&
     model.baseUrl === PROVIDER_BASE_URL
@@ -72,7 +65,6 @@ function projectModel(canonical: Model<Api>): BridgeModel {
     api: PROVIDER_API,
     provider: PROVIDER_ID,
     baseUrl: PROVIDER_BASE_URL,
-    [BRIDGE_MODEL]: canonical.id,
   };
 }
 

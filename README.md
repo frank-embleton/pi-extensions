@@ -9,6 +9,39 @@ Personal Pi extension package.
 - `mode-presets` — switch model/thinking presets
 - `subagents` — background Pi worker agents
 
+## Doppelclaude models omitted by discovery
+
+Claude Code's SDK discovery can omit models that work when selected explicitly.
+Add those models under `providers.doppelclaude` in `~/.pi/agent/models.json`:
+
+```json
+{
+  "providers": {
+    "doppelclaude": {
+      "baseUrl": "claude-code://local",
+      "api": "doppelclaude",
+      "models": [{
+        "id": "claude-fable-5-2",
+        "name": "Claude Fable 5.2",
+        "reasoning": true,
+        "input": ["text", "image"],
+        "contextWindow": 1000000,
+        "maxTokens": 128000
+      }]
+    }
+  }
+}
+```
+
+Merge this into existing settings rather than replacing the file. Only stable IDs
+such as `claude-fable-5-2` are accepted; the bridge adds `[1m]` for context windows
+over 200k. Claude Code enforces model access and minimum CLI versions at request
+time. Supply `cost` metadata if you need Pi's cost estimates; omitted prices default
+to zero. These explicit models supplement automatic discovery.
+
+Run the model validation tests with `node --test extensions/doppelclaude/models.test.mjs`
+(Node.js 22.13+).
+
 ## Skills
 
 Includes the personal skills under `skills/`.
