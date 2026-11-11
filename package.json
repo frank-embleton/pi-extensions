@@ -13,6 +13,7 @@
       "./extensions/btw",
       "./extensions/doppelclaude/src/index.ts",
       "./extensions/mode-presets",
+      "./extensions/rex",
       "./extensions/subagents"
     ],
     "skills": [
