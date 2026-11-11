@@ -7,7 +7,7 @@ Personal Pi extension package.
 - `btw` — side-channel assistant overlay
 - `doppelclaude` — Claude Agent SDK provider with one standalone system prompt; Claude Code's prompt preset, settings files, and Pi instructions are not forwarded ([upstream reference, not current configuration](extensions/doppelclaude/README.upstream.md))
 - `mode-presets` — switch model/thinking presets
-- `rex` — inject Rex’s startup context (session/pane IDs and guidance) as a hidden message on session start; requires the Rex CLI and does nothing outside Rex
+- `rex` — inject a compact Rex quick reference and inherited session/pane IDs as a hidden startup message, without invoking the CLI or loading the full skill. Agents name task windows and leave session names unchanged unless asked. Routine pane/tab operations need no skill read; advanced workflows can use the Rex-installed skill. Does nothing outside Rex.
 - `subagents` — background Pi worker agents
 
 ## Doppelclaude models omitted by discovery
