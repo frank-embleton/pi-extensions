@@ -81,10 +81,9 @@ export function compareModels(left: Model<Api>, right: Model<Api>): number {
 
 export function projectCatalogModels(
   canonicalModels: readonly Model<Api>[],
-  allowedIds: ReadonlySet<string>,
 ): BridgeModel[] {
   return canonicalModels
-    .filter((model) => allowedIds.has(model.id) && isStableClaudeModelId(model.id))
+    .filter((model) => isStableClaudeModelId(model.id))
     .map(projectModel);
 }
 

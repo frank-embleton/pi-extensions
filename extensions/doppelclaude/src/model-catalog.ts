@@ -134,9 +134,8 @@ function sameModelIds(left: readonly string[] | undefined, right: readonly strin
 export interface BridgeModelCatalog {
   getModels(): readonly BridgeModel[];
   /**
-   * Claude can serve a model it never advertised. Nothing else will ever name it, so the model
-   * that answered is taken as its own evidence: it joins the allowlist, appears in `/models`
-   * immediately, and is replayed on the next start.
+   * Record served models so IDs missing from both discovery and canonical metadata can
+   * borrow sibling metadata immediately and on subsequent starts.
    */
   noteServedModel(id: string): Promise<void>;
   /**
@@ -189,21 +188,21 @@ export function createBridgeModelCatalog(
     return target({ persist: entry, update });
   };
 
-  // Pi's bundled metadata is the floor and a canonical catalog overlays it, so a model Claude Code
-  // confirmed is offered as soon as either source can describe it.
+  // Claude Code discovery is not exhaustive. Offer all stable canonical models; use
+  // advertised and served IDs to supplement metadata, not restrict selectable models.
   const project = () => {
-    const allowedIds = new Set([...advertisedIds, ...observedIds]);
+    const discoveredIds = new Set([...advertisedIds, ...observedIds]);
     const merged = new Map(
-      projectCatalogModels(dependencies.builtinModels, allowedIds).map((model) => [
+      projectCatalogModels(dependencies.builtinModels).map((model) => [
         model.id,
         model,
       ]),
     );
-    for (const model of projectCatalogModels(overlayModels, allowedIds))
+    for (const model of projectCatalogModels(overlayModels))
       merged.set(model.id, model);
-    // An allowed model neither source describes is offered anyway, wearing its nearest
-    // family sibling's metadata until a catalog describes it properly.
-    for (const id of allowedIds) {
+    // A discovered model neither source describes borrows its nearest family sibling's
+    // metadata until a catalog describes it properly.
+    for (const id of discoveredIds) {
       if (merged.has(id)) continue;
       const synthesized =
         synthesizeSiblingModel(overlayModels, id) ??
@@ -214,7 +213,7 @@ export function createBridgeModelCatalog(
   };
 
   // Applied only inside a publish `update`, so pi's generation fence has already ruled out a
-  // superseded refresh installing an older allowlist or overlay.
+  // superseded refresh installing older discovery data or metadata.
   const applyModels = (
     overlay: readonly Model<Api>[],
     allowedIds: ReadonlySet<string>,
@@ -271,8 +270,7 @@ export function createBridgeModelCatalog(
         `model-catalog: observed served model ${id}${models.some((model) => model.id === id) ? "" : " (undescribed)"}`,
       );
       if (!publish) return;
-      // An entry with no `supportedModelIds` reads as a never-probed installation on the next start,
-      // collapsing the catalog to observed models only, so the confirmed allowlist is carried too.
+      // Preserve discovery alongside observations so undescribed models survive a cold start.
       const stored = storedCatalog;
       await persist(publish, {
         ...(stored ?? { models: [] }),
@@ -282,13 +280,13 @@ export function createBridgeModelCatalog(
     },
     // Pi replays this refresh with `allowNetwork: false` on every start, so the offline branch
     // is the whole cold-start catalog: newly shipped built-ins plus the last canonical fetch,
-    // both narrowed by the allowlist Claude Code confirmed the last time it was asked.
+    // supplemented by the IDs Claude Code advertised or served.
     async refresh(context, requestSupportedModels) {
       const stored = parseStoreEntry(context.stored);
       publish = context.publish;
       storedCatalog = stored;
       for (const id of stored?.observedModelIds ?? []) observedIds.add(id);
-      // An installation that has never asked Claude Code has no allowlist to replay, so its first
+      // An installation that has never asked Claude Code has no discovery data to replay, so its first
       // refresh discovers even while Pi is only replaying caches. Once the probe answers, a fetched
       // and a failed catalog both write an entry, so a bootstrapped installation never discovers on
       // startup again. A probe that never answered leaves it unbootstrapped for the next start.
@@ -309,7 +307,7 @@ export function createBridgeModelCatalog(
 
       const supportedModelIds = [...allowedIds].sort();
       // Claude Code can begin serving a model that neither the built-ins nor the cached catalog
-      // describe. An allowlist entry alone cannot surface it, so freshness yields to a refetch.
+      // describe. A discovered ID alone cannot surface it, so freshness yields to a refetch.
       const undescribed = [...supportedModelIds, ...observedIds].some(
         (id) => !models.some((model) => model.id === id),
       );
@@ -320,7 +318,7 @@ export function createBridgeModelCatalog(
         dependencies.now() - (stored.checkedAt ?? 0) < REFRESH_INTERVAL_MS
       ) {
         // A still-fresh canonical catalog must record what Claude Code just advertised, or the
-        // next cold start replays a stale allowlist and drops a newly served model.
+        // next cold start otherwise loses newly advertised IDs missing canonical metadata.
         if (!sameModelIds(stored.supportedModelIds, supportedModelIds)) {
           await persist(context.publish, {
             ...(storedCatalog ?? stored),
@@ -338,7 +336,7 @@ export function createBridgeModelCatalog(
         const canonicalEntry = await fetchCatalog(context.signal, validator);
         if (canonicalEntry === undefined) {
           // Unchanged: the restore already applied the cached overlay, so only the freshness
-          // window and the allowlist move.
+          // window and discovery data move.
           await persist(context.publish, {
             ...(storedCatalog ?? stored ?? { models: [] }),
             supportedModelIds,
@@ -360,8 +358,7 @@ export function createBridgeModelCatalog(
         );
       } catch (error) {
         if (!context.signal.aborted) {
-          // The probe already confirmed this allowlist. Dropping it here would strand later starts
-          // on an empty catalog, or replay a stale one, over models the built-ins can describe.
+          // Preserve discovery even when canonical metadata cannot be refreshed.
           // Stamping `checkedAt` on the failure throttles retries, matching pi's own catalog flow.
           await persist(context.publish, {
             ...(storedCatalog ?? { models: [] }),

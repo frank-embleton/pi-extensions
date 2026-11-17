@@ -13,6 +13,30 @@ const configured = {
   contextWindow: 1_000_000,
 };
 
+test("catalog models remain selectable without SDK advertisement or a served observation", () => {
+  const canonical = (id) => ({
+    ...configured,
+    id,
+    provider: "anthropic",
+    api: "anthropic-messages",
+    baseUrl: "https://api.anthropic.com",
+    compat: { unsupportedByBridge: true },
+  });
+  const projected = models.projectCatalogModels([
+    canonical("claude-fable-5-1"),
+    canonical("claude-fable-5-2"),
+    canonical("claude-fable-5-2-20261101"),
+    canonical("claude-fable-5-2[1m]"),
+    canonical("fable"),
+    canonical("claude-unknown-5"),
+  ]);
+  assert.deepEqual(projected.map((model) => model.id), ["claude-fable-5-1", "claude-fable-5-2"]);
+  for (const model of projected) {
+    assert.equal(models.isSupportedModel(model), true);
+    assert.equal("compat" in model, false);
+  }
+});
+
 test("explicit stable models do not require SDK discovery or a catalog marker", () => {
   assert.equal(models.isSupportedModel(configured), true);
   assert.equal(models.claudeCodeModelId(configured), "claude-fable-5-2[1m]");
